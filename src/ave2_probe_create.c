@@ -1,22 +1,12 @@
 /*
- * ave2_probe_create.c v11 — descriptor-map wall discrimination
+ * ave2_probe_create.c v12 — clean-room descriptor-map experiments
  *
- * v10 facts (device):
- *  - dispatcher precheck sees OOL descriptor length EXACTLY (ladder c2) -> row match at 0x1a0a0
- *  - sel4 exact -> 0xbc, out untouched (kext map step NULL / "faild to prepare memory")
- *  - sel5 exact -> 0xe00002d9 = translate(AVE -1011) (session-state reject, raw path)
- *  - sel6 raw   -> 0xe00002d9 (control; reaches AVE session)
- * Theory under test (v11): IOMemoryDescriptor::map wire-gate denies the probe
- *  task (no wired memory allowance) -> mlock a big buffer first; plus ordering
- *  and repeatability checks (state pollution vs clean first-call).
- * v11 probes (fresh session each, LOGCNT monotonic):
- *  [A] sel4 exact FIRST call (no mlock)          baseline reorder test
- *  [B] mlock 256MB, touch, then sel4 exact       wire-allowance theory
- *  [C] sel4 exact twice in a row                 repeatability
- *  [D] sel5 exact after mlock                    d9 -> ?
- *  [E] sel6 raw after mlock (control)            d9 expected
- *  [F] sel4 async + real wake port after mlock
+ * v11 lesson: experiment ORDER pollutes (a failed sel4 may leak prepared
+ * wire state; later prepares return Busy=0xd9). v12 protocol: ONE create,
+ * optional mlock BEFORE the FIRST-EVER sel4, ONE sel4 attempt, then exit.
+ * env: AVE2_LOGCNT (monotonic), AVE2_MLOCK_MB (mlock before sel4, default 0).
  */
+
 
 
 #include <stdio.h>
@@ -135,53 +125,22 @@ int main(void) {
             } while(0)
             kern_return_t k2; size_t osz; iodyn_async_ref_t aref;
             const ave2_profile_t *prof = ave2_profile_get(0);
-            printf("\n=== v11 descriptor-map wall matrix (session live) ===\n");
-
-            /* [A] sel4 exact as FIRST call after create */
-            CFGFILL(); osz = 0x20; memset(out,0,sizeof(out));
-            k2 = p_IOConnectCallStructMethod(conn, 4, cin, 0x1a0a0, out, &osz);
-            printf("  [A sel4 first 0x1a0a0/0x20] -> 0x%08x %s ", k2, krname(k2)); dump_out(out, osz, 0x20);
-
-            /* [B] mlock 256MB then sel4 exact */
+            printf("\n=== v12 clean-room single-shot ===\n");
             {
-                const size_t WIRE = 256ull<<20;
-                void *wb = malloc(WIRE);
-                int locked = -1;
-                if (wb) {
-                    memset(wb, 0xAB, WIRE); /* fault in */
-                    locked = mlock(wb, WIRE);
-                    printf("  [B] mlock 256MB -> %d (errno=%d)\n", locked, locked?errno:0);
+                const char *emb = getenv("AVE2_MLOCK_MB");
+                size_t mb = (emb && emb[0]) ? (size_t)strtoul(emb,NULL,0) : 0;
+                void *wb = NULL; size_t WIRE = 0;
+                if (mb) {
+                    WIRE = mb<<20;
+                    wb = malloc(WIRE);
+                    if (wb) { memset(wb,0xAB,WIRE); int lk = mlock(wb,WIRE);
+                        printf("  mlock %zuMB -> %d (errno=%d)\n", mb, lk, lk?errno:0); }
                 }
                 CFGFILL(); osz = 0x20; memset(out,0,sizeof(out));
                 k2 = p_IOConnectCallStructMethod(conn, 4, cin, 0x1a0a0, out, &osz);
-                printf("  [B sel4 after mlock]        -> 0x%08x %s ", k2, krname(k2)); dump_out(out, osz, 0x20);
-                if (wb && locked==0) munlock(wb, WIRE);
-                free(wb);
+                printf("  [sel4 FIRST 0x1a0a0/0x20]   -> 0x%08x %s ", k2, krname(k2)); dump_out(out, osz, 0x20);
+                if (wb) { munlock(wb,WIRE); free(wb); }
             }
-
-            /* [C] sel4 exact twice in a row */
-            CFGFILL(); osz = 0x20; memset(out,0,sizeof(out));
-            k2 = p_IOConnectCallStructMethod(conn, 4, cin, 0x1a0a0, out, &osz);
-            printf("  [C1 sel4 repeat]            -> 0x%08x %s ", k2, krname(k2)); dump_out(out, osz, 0x20);
-            CFGFILL(); osz = 0x20; memset(out,0,sizeof(out));
-            k2 = p_IOConnectCallStructMethod(conn, 4, cin, 0x1a0a0, out, &osz);
-            printf("  [C2 sel4 repeat2]           -> 0x%08x %s ", k2, krname(k2)); dump_out(out, osz, 0x20);
-
-            /* [D] sel5 exact after mlock experiment */
-            CFGFILL(); osz = 0x150; memset(out,0,sizeof(out));
-            k2 = p_IOConnectCallStructMethod(conn, 5, cin, 0x1a0b0, out, &osz);
-            printf("  [D sel5 0x1a0b0/0x150]      -> 0x%08x %s ", k2, krname(k2)); dump_out(out, osz, 0x150);
-
-            /* [E] sel6 raw control */
-            memset(sin6,0,sizeof(sin6)); osz = 0x20; memset(out,0,sizeof(out));
-            k2 = p_IOConnectCallStructMethod(conn, 6, sin6, 0x30, out, &osz);
-            printf("  [E sel6 0x30/0x20]          -> 0x%08x %s ", k2, krname(k2)); dump_out(out, osz, 0x20);
-
-            /* [F] sel4 async with real wake port */
-            CFGFILL(); memset(aref,0,sizeof(aref)); aref[0]=(uint64_t)wake;
-            osz = 0x20; memset(out,0,sizeof(out));
-            k2 = p_IOConnectCallAsyncStructMethod(conn, 4, wake, aref, 1, cin, 0x1a0a0, out, &osz);
-            printf("  [F sel4 async 0x1a0a0]      -> 0x%08x %s ", k2, krname(k2)); dump_out(out, osz, 0x20);
 
         }
     }
