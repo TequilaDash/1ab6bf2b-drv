@@ -1,10 +1,13 @@
 /*
- * ave2_probe_create.c — brute-force sel1 create size gates on-device
+ * ave2_probe_create.c v2 — selector sweep to map the iOS 26 external-method
+ * table: which selectors exist (Unsupported = hole) vs dispatch (other codes).
  *
- * macOS evidence says in>=0x920 / out>=0x28 passes. On iOS 26.0.1 we get
- * trap=0xe00002c2 with an all-zero out buffer — the wrapper rejects before
- * the inner handler writes anything. Sweep in/out size combos to find the
- * shape this build's external-method table expects.
+ * v1 finding: ALL in/out size combos return trap=0xe00002c2 with untouched out
+ * buffer => rejection happens before the handler. Possibilities:
+ *   a) sel1 not valid on iOS build (different selector numbering)
+ *   b) scalar args required (IOConnectCallMethod vs StructMethod routing)
+ *   c) async-only dispatch
+ * This sweep distinguishes (a) from (b/c) by error-code fingerprint.
  */
 
 #include <stdio.h>
@@ -27,9 +30,9 @@ int main(void) {
     io_connect_t conn = MACH_PORT_NULL;
     kern_return_t kr = p_IOServiceOpen(svc, mach_task_self(), 1, &conn);
     if (kr != KERN_SUCCESS) { printf("[-] open: 0x%x\n", kr); return 2; }
-    printf("[+] opened 0x%x\n", conn);
+    printf("[+] opened 0x%x\n\n", conn);
 
-    static uint8_t in[0x2000];
+    static uint8_t in[0x1a0a0];
     memset(in, 0, sizeof(in));
     memcpy(in + AVE2_CREATE_OFF_VERSION, "904.76.7", 8);
     *(int32_t *)(in + AVE2_CREATE_OFF_ENCTYPE) = 1;
@@ -39,23 +42,35 @@ int main(void) {
 
     uint8_t out[0x400];
 
-    const size_t insizes[]  = {0x920, 0x1000, 0x1a0a0, 0x2000, 0x930};
-    const size_t outsizes[] = {0x28, 0x20, 0x30, 0x40, 0x100, 0x1c};
-
-    for (int ii = 0; ii < 5; ii++) {
-        for (int oo = 0; oo < 6; oo++) {
-            size_t isz = insizes[ii], osz = outsizes[oo];
-            memset(out, 0xAA, sizeof(out));
-            kern_return_t k = p_IOConnectCallStructMethod(conn, AVE2_SEL_CREATE,
-                                                          in, isz, out, &osz);
-            uint32_t st = osz >= 0x1c ? *(uint32_t *)(out + 0x18) : 0;
-            uint64_t ck = osz >= 8 ? *(uint64_t *)(out + 0) : 0;
-            int nonzero = 0;
-            for (size_t q = 0; q < osz && q < 0x40; q++) if (out[q] != 0xAA && out[q] != 0) { nonzero = 1; break; }
-            printf("in=0x%04zx out=0x%02zx -> trap=0x%08x status=0x%08x cookie=%016llx out-touched=%d\n",
-                   isz, osz, k, st, (unsigned long long)ck, nonzero);
-        }
+    printf("=== struct-method selector sweep (in=0x920) ===\n");
+    for (uint32_t sel = 0; sel <= 12; sel++) {
+        size_t osz = 0x100;
+        memset(out, 0, sizeof(out));
+        kern_return_t k = p_IOConnectCallStructMethod(conn, sel, in, 0x920, out, &osz);
+        printf("  sel=%2u struct  -> 0x%08x outsz=%3zu out0=%016llx\n",
+               sel, k, osz,
+               (unsigned long long)(osz >= 8 ? *(uint64_t *)out : 0));
     }
+
+    printf("\n=== scalar-method selector sweep (0 scalars in, 8 out) ===\n");
+    for (uint32_t sel = 0; sel <= 12; sel++) {
+        uint64_t sc_out[8] = {0};
+        uint32_t sc_cnt = 8;
+        kern_return_t k = p_IOConnectCallScalarMethod(conn, sel, NULL, 0, sc_out, &sc_cnt);
+        printf("  sel=%2u scalar  -> 0x%08x cnt=%u out0=%016llx\n",
+               sel, k, sc_cnt, (unsigned long long)sc_out[0]);
+    }
+
+    /* also try scalar-method with one scalar arg (some wrappers route by arg cnt) */
+    printf("\n=== scalar-method with 1 input scalar ===\n");
+    for (uint32_t sel = 0; sel <= 12; sel++) {
+        uint64_t sc_in[1] = {0};
+        uint64_t sc_out[8] = {0};
+        uint32_t sc_cnt = 8;
+        kern_return_t k = p_IOConnectCallScalarMethod(conn, sel, sc_in, 1, sc_out, &sc_cnt);
+        printf("  sel=%2u scalar1 -> 0x%08x cnt=%u\n", sel, k, sc_cnt);
+    }
+
     p_IOServiceClose(conn);
     p_IOObjectRelease(svc);
     return 0;
