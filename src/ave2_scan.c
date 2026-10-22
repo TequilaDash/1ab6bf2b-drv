@@ -19,6 +19,10 @@
 #include "iokit_dyn.h"
 
 static const char *cands[] = {
+    /* control probes: services that MUST exist — validates matching works */
+    "IOMobileFramebuffer",
+    "AppleMobileApNonce",
+    "AppleSPUProfileDriver",
     /* exact names used across iOS/macOS versions */
     "AppleAVE2Driver",
     "AppleAVE2",
