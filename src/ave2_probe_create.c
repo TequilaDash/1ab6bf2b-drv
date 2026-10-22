@@ -1,5 +1,5 @@
 /*
- * ave2_probe_create.c v5 — iOS 26.0.1 exact-size create probe
+ * ave2_probe_create.c v8 — create mode=5 (LRB) + configure version strings
  *
  * v4 finding: every sel1..10 probe returned c2 (0xe00002c2) with untouched out,
  * regardless of in-size (0x920..0x2000) or transport. kernelcache RE of
@@ -90,7 +90,7 @@ int main(void) {
     if (e != NULL && e[0]) counter = strtoull(e, NULL, 0);
 
     printf("=== sel1 create SYNC exact 0x6f0/0x28 (iOS layout) ===\n");
-    build_create_input(in, AVE2_IOS_CREATE_IN_SIZE, counter, 1);
+    build_create_input(in, AVE2_IOS_CREATE_IN_SIZE, counter, 5); /* v8: mode=5 = LRB session (0x1ba27b8 dispatch on in+0x6e8) */
     size_t osz = AVE2_IOS_CREATE_OUT_SIZE;
     memset(out, 0, sizeof(out));
     kern_return_t k = p_IOConnectCallStructMethod(conn, 1, in, AVE2_IOS_CREATE_IN_SIZE, out, &osz);
@@ -115,7 +115,7 @@ int main(void) {
 
     if (k != 0) {
         printf("\n=== retry: ASYNC struct exact 0x6f0 ===\n");
-        build_create_input(in, AVE2_IOS_CREATE_IN_SIZE, ++counter, 1);
+        build_create_input(in, AVE2_IOS_CREATE_IN_SIZE, ++counter, 5); /* v8: async retry keeps mode=5 */
         iodyn_async_ref_t aref; memset(aref, 0, sizeof(aref));
         aref[0] = (uint64_t)wake;
         osz = AVE2_IOS_CREATE_OUT_SIZE;
@@ -139,6 +139,8 @@ int main(void) {
             static uint8_t cin[0x1a0b0];
 #define CFGFILL(withEncType) do { \
                 memset(cin,0,sizeof(cin)); \
+                memcpy(cin + 0x00, "905.40.1", 8); /* v8: version string also at cfg+0x00 (0x1b98d30 logs in[0]) */ \
+                memcpy(cin + 0x28, "905.40.1", 8); /* v8: and at +0x28 (create-style offset, harmless) */ \
                 *(int64_t  *)(cin + 0x10) = 0; \
                 *(int64_t  *)(cin + 0x18) = 0; \
                 *(int64_t  *)(cin + 0x20) = 0; \
