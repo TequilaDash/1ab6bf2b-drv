@@ -132,28 +132,75 @@ int main(void) {
         if (!created) {
             printf("\n=== sel4 configure skipped (create failed) ===\n");
         } else {
-            printf("\n=== sel4 configure ASYNC exact 0x1a0a0/0x20 (LRB geometry) ===\n");
             const ave2_profile_t *prof = ave2_profile_get(0);
-            static uint8_t cin[0x1a0a0];
-            memset(cin, 0, sizeof(cin));
-            *(int64_t  *)(cin + 0x10) = 0;                       /* dataCnt >= 0 */
-            *(int64_t  *)(cin + 0x18) = 0;                       /* mode0   >= 0 */
-            *(int64_t  *)(cin + 0x20) = 0;                       /* mode1   >= 0 */
-            *(int32_t  *)(cin + AVE2_OFF_WIDTH)      = (int32_t)prof->w;
-            *(int32_t  *)(cin + AVE2_OFF_HEIGHT)     = (int32_t)prof->h;
-            *(int32_t  *)(cin + AVE2_MODE5_OFF_P6)   = 2;        /* chroma 4:2:0 */
-            *(int32_t  *)(cin + AVE2_MODE5_OFF_P8)   = 10;       /* 10-bit       */
-            *(uint8_t  *)(cin + AVE2_MODE5_OFF_P9FLAG) = 0;      /* bit0 == 0    */
-            *(int32_t  *)(cin + AVE2_OFF_NUMVIEWS)   = 1;
-            *(int32_t  *)(cin + AVE2_OFF_NUMLAYERS)  = 1;
-            iodyn_async_ref_t aref; memset(aref, 0, sizeof(aref));
-            aref[0] = (uint64_t)wake;
-            osz = 0x20;
-            memset(out, 0, sizeof(out));
-            kern_return_t k2 = p_IOConnectCallAsyncStructMethod(conn, 4, wake, aref, 1,
-                                                                cin, 0x1a0a0, out, &osz);
-            printf("  async -> 0x%08x %s ", k2, krname(k2)); dump_out(out, osz, 0x20);
-            printf("  [if this returned 0/0xfffffc0d without panic, check dmesg/syslog next]\n");
+            fp_IOConnectSetNotificationPort p_SetNotif =
+                (fp_IOConnectSetNotificationPort)dlsym(iodyn_handle, "IOConnectSetNotificationPort");
+            printf("\n[SetNotificationPort dlsym: %s]\n", p_SetNotif ? "ok" : "NULL");
+            static uint8_t cin[0x1a0b0];
+#define CFGFILL(withEncType) do { \
+                memset(cin,0,sizeof(cin)); \
+                *(int64_t  *)(cin + 0x10) = 0; \
+                *(int64_t  *)(cin + 0x18) = 0; \
+                *(int64_t  *)(cin + 0x20) = 0; \
+                *(int32_t  *)(cin + AVE2_OFF_WIDTH)      = (int32_t)prof->w; \
+                *(int32_t  *)(cin + AVE2_OFF_HEIGHT)     = (int32_t)prof->h; \
+                *(int32_t  *)(cin + AVE2_MODE5_OFF_P6)   = 2; \
+                *(int32_t  *)(cin + AVE2_MODE5_OFF_P8)   = 10; \
+                *(uint8_t  *)(cin + AVE2_MODE5_OFF_P9FLAG) = 0; \
+                *(int32_t  *)(cin + AVE2_OFF_NUMVIEWS)   = 1; \
+                *(int32_t  *)(cin + AVE2_OFF_NUMLAYERS)  = 1; \
+                if (withEncType) { \
+                    *(int32_t *)(cin + AVE2_OFF_ENCTYPE) = 1; \
+                    *(int32_t *)(cin + AVE2_OFF_SLICES)  = 1; \
+                } \
+            } while(0)
+            kern_return_t k2; size_t osz; iodyn_async_ref_t aref;
+            printf("\n=== v7 configure matrix (sel4 unless noted) ===\n");
+
+            /* 1: SYNC struct 0x1a0a0/0x20 */
+            CFGFILL(0); osz = 0x20; memset(out,0,sizeof(out));
+            k2 = p_IOConnectCallStructMethod(conn, 4, cin, 0x1a0a0, out, &osz);
+            printf("  [1 sync 0x20]        -> 0x%08x %s\n", k2, krname(k2)); dump_out(out, osz, 0x20);
+
+            /* 2: ASYNC baseline (v6 repro) */
+            CFGFILL(0); memset(aref,0,sizeof(aref)); aref[0]=(uint64_t)wake;
+            osz = 0x20; memset(out,0,sizeof(out));
+            k2 = p_IOConnectCallAsyncStructMethod(conn, 4, wake, aref, 1, cin, 0x1a0a0, out, &osz);
+            printf("  [2 async baseline]   -> 0x%08x %s\n", k2, krname(k2)); dump_out(out, osz, 0x20);
+
+            /* 3: ASYNC + SetNotificationPort first */
+            if (p_SetNotif) {
+                kern_return_t kn = p_SetNotif(conn, 0, wake);
+                printf("  [3 SetNotificationPort] -> 0x%08x %s\n", kn, krname(kn));
+                CFGFILL(0); memset(aref,0,sizeof(aref)); aref[0]=(uint64_t)wake;
+                osz = 0x20; memset(out,0,sizeof(out));
+                k2 = p_IOConnectCallAsyncStructMethod(conn, 4, wake, aref, 1, cin, 0x1a0a0, out, &osz);
+                printf("  [3 async +notifport] -> 0x%08x %s\n", k2, krname(k2)); dump_out(out, osz, 0x20);
+            }
+
+            /* 4: ASYNC + encType=1 / slices=1 */
+            CFGFILL(1); memset(aref,0,sizeof(aref)); aref[0]=(uint64_t)wake;
+            osz = 0x20; memset(out,0,sizeof(out));
+            k2 = p_IOConnectCallAsyncStructMethod(conn, 4, wake, aref, 1, cin, 0x1a0a0, out, &osz);
+            printf("  [4 async enctype=1]  -> 0x%08x %s\n", k2, krname(k2)); dump_out(out, osz, 0x20);
+
+            /* 5: ASYNC aref count=4 */
+            CFGFILL(0); memset(aref,0,sizeof(aref)); aref[0]=(uint64_t)wake;
+            osz = 0x20; memset(out,0,sizeof(out));
+            k2 = p_IOConnectCallAsyncStructMethod(conn, 4, wake, aref, 4, cin, 0x1a0a0, out, &osz);
+            printf("  [5 async aref n=4]   -> 0x%08x %s\n", k2, krname(k2)); dump_out(out, osz, 0x20);
+
+            /* 6: ASYNC sel5 0x1a0b0/0x150 */
+            CFGFILL(0); memset(aref,0,sizeof(aref)); aref[0]=(uint64_t)wake;
+            osz = 0x150; memset(out,0,sizeof(out));
+            k2 = p_IOConnectCallAsyncStructMethod(conn, 5, wake, aref, 1, cin, 0x1a0b0, out, &osz);
+            printf("  [6 async sel5 0x150] -> 0x%08x %s\n", k2, krname(k2)); dump_out(out, osz, 0x150);
+
+            /* 7: SYNC sel5 0x1a0b0/0x150 */
+            CFGFILL(0); osz = 0x150; memset(out,0,sizeof(out));
+            k2 = p_IOConnectCallStructMethod(conn, 5, cin, 0x1a0b0, out, &osz);
+            printf("  [7 sync sel5 0x150]  -> 0x%08x %s\n", k2, krname(k2)); dump_out(out, osz, 0x150);
+#undef CFGFILL
         }
     }
 
