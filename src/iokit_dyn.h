@@ -20,6 +20,8 @@
 typedef mach_port_t io_object_t;
 typedef mach_port_t io_service_t;
 typedef mach_port_t io_connect_t;
+typedef mach_port_t io_registry_entry_t;
+typedef mach_port_t io_iterator_t;
 
 /* kIOReturn / kIO constants we rely on (from IOReturn.h, replicated) */
 #define IODYN_SUCCESS              0x00000000u
