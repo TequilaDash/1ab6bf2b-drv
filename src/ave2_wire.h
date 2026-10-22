@@ -215,24 +215,10 @@ _Static_assert(sizeof(struct ave2_cmdbuf_header) == 0x338, "header must be 0x338
 #define AVE2_CREATE_OFF_VERSION  0x28u    /* 640538.c:33 */
 #define AVE2_CREATE_OFF_ENCTYPE  0x918u   /* 640538.c:61 */
 
-/* --- iOS 26.0.1 (904.76.7) corrected layout, static 反汇编 2026-10-22 ---
- * create wrapper @ 0xfffffff008b9f714 (kext base fffffff00720dea0):
- *   cmp w26,#0x6f0 / b.lo reject  → structureInputSize must be ≥ 0x6F0
- *   cmp w28,#0x27  / b.ls reject  → structureOutputSize must be ≥ 0x28
- * Framework shape gate passes EXACT sizes (macOS run3 evidence pattern),
- * and the device returned 0xe00002c2 for 0x920 (> iOS table value) — so iOS
- * sel1 table check value is 0x6F0, not macOS 0x920.
- * Core create reads encType from inbuf+0x6E8:
- *   0xfffffff008b9f544: ldr w2,[x20,#0x6e8] → bl 0xfffffff008ba67b8 (AVE_Client_Create)
- * Config substruct inbuf+0x38.. uses valid-bit semantics (bit0=valid → copy+clamp
- * enums to 1..4); ALL-ZERO = defaults, passes the validator chain 0x8a4d6b8.
- * No log-index/log-level gates inside the 0x6F0 min struct (those were macOS-only
- * at 0x808/0x910/0x914/0x918 — beyond iOS min size).
- */
-#define AVE2_IOS_CREATE_IN_SIZE      0x6F0u
-#define AVE2_IOS_CREATE_OUT_SIZE     0x28u
-#define AVE2_IOS_CREATE_OFF_VERSION  0x28u    /* same header slot (checkParam chain) — needs device confirm */
-#define AVE2_IOS_CREATE_OFF_ENCTYPE  0x6E8u
+/* iOS 26.0.1 create layout is defined authoritatively in the block below
+ * (AVE2_IOS_CREATE_*). Cross-validated by two independent 反汇编s 2026-10-22:
+ * create table check-in = 0x6f0 (NOT macOS 0x920) — this is why every device
+ * attempt at 0x920..0x2000 returned framework c2 (dispatcher equality pre-check). */
 
 /* ---------------------------------------------------------------------------
  * iOS 26.0.1 create profile (iPhone12,1 / J375c / AppleAVE2 904.76.7)
