@@ -1,17 +1,27 @@
 /*
- * ave2_probe_create.c v8 — create mode=5 (LRB) + configure version strings
+ * ave2_probe_create.c v10 — descriptor-path discrimination matrix
  *
- * v4 finding: every sel1..10 probe returned c2 (0xe00002c2) with untouched out,
- * regardless of in-size (0x920..0x2000) or transport. kernelcache RE of
- * 26.0.1 (2026-10-22) solved it: the iOS dispatch-table row for sel1 create is
- * in=0x6f0 out=0x28 and the kernel dispatcher enforces BOTH sizes with
- * EQUALITY before the handler ever runs (the handler's own mismatch path would
- * return 0xe00002bc — never observed). macOS sizes never matched → wall of c2.
- *
- * v5 sends the exact 0x6f0 layout decoded from AVE_UCCmd_CheckParam_Open
- * (0x1b98274) + Open continuation (0x1b9b504); offsets in ave2_wire.h
- * AVE2_IOS_CREATE_*. Optional follow-up configure (sel4) behind env
- * AVE2_CONFIGURE=1, only meaningful after create succeeds.
+ * Kernel+trap RE (2026-10-23) established:
+ *  - MIG trap family builds IOExternalMethodArguments{version=2}: raw
+ *    structureInput lands at +0x30 only for in-band structs (<=4096);
+ *    bigger structs ride the OOL descriptor at +0x40.
+ *  - Kernel externalMethod precheck compares dispatch-row sizes EXACTLY
+ *    (raw size OR descriptor length) -> mismatch = 0xe00002c2.
+ *  - sel4 (0x1b9c7d4) has TWO 0xe00002bc exits: (1) both inputs
+ *    NULL, (2) descriptor map step +0xe8(desc,0x1000) returned NULL
+ *    ("faild to prepare memory"). Device sees bc with untouched out ->
+ *    descriptor delivered but map failed. sel5 returns 0xe00002d9
+ *    (Busy) from the same +0xd8 prepare slot -> unexplained asymmetry.
+ * v10 probes (each vs a fresh session):
+ *  [1] sel6 0x30/0x20      raw-delivery control (expect NOT bc)
+ *  [2] sel4 0x1a0a0/0x20   baseline (expect bc)
+ *  [3] sel4 0x1a09c/0x20   one short of exact (expect c2 if precheck seen)
+ *  [4] sel4 0x1004/0x20    just over in-band cap (MIG err vs c2 vs bc)
+ *  [5] sel4 0x0ffc/0x20    just under cap (expect c2)
+ *  [6] sel5 0x1a0b0/0x150  baseline (expect d9)
+ *  [7] sel5 0x1a0a0/0x150  wrong size for sel5 (d9-before-gate vs c2)
+ *  [8] sel4 async baseline (expect bc)
+ *  [9] SetNotificationPort type sweep 0..4 (arm async machinery)
  */
 
 #include <stdio.h>
@@ -106,20 +116,18 @@ int main(void) {
 
     if ((e = getenv("AVE2_CONFIGURE")) != NULL && e[0] == '1') {
         if (!created) {
-            printf("\n=== sel4 configure skipped (create failed) ===\n");
+            printf("\n=== configure experiments skipped (create failed) ===\n");
         } else {
-            const ave2_profile_t *prof = ave2_profile_get(0);
             fp_IOConnectSetNotificationPort p_SetNotif =
                 (fp_IOConnectSetNotificationPort)dlsym(iodyn_handle, "IOConnectSetNotificationPort");
             printf("\n[SetNotificationPort dlsym: %s]\n", p_SetNotif ? "ok" : "NULL");
-            static uint8_t cin[0x1a0b0];
-#define CFGFILL(withEncType) do { \
+
+            static uint8_t cin[0x1a0c0];
+            static uint8_t sin6[0x30];
+#define CFGFILL() do { \
                 memset(cin,0,sizeof(cin)); \
-                memcpy(cin + 0x00, "905.40.1", 8); /* v8: version string also at cfg+0x00 (0x1b98d30 logs in[0]) */ \
-                memcpy(cin + 0x28, "905.40.1", 8); /* v8: and at +0x28 (create-style offset, harmless) */ \
-                *(int64_t  *)(cin + 0x10) = 0; \
-                *(int64_t  *)(cin + 0x18) = 0; \
-                *(int64_t  *)(cin + 0x20) = 0; \
+                memcpy(cin + 0x00, "905.40.1", 8); \
+                memcpy(cin + 0x28, "905.40.1", 8); \
                 *(int32_t  *)(cin + AVE2_OFF_WIDTH)      = (int32_t)prof->w; \
                 *(int32_t  *)(cin + AVE2_OFF_HEIGHT)     = (int32_t)prof->h; \
                 *(int32_t  *)(cin + AVE2_MODE5_OFF_P6)   = 2; \
@@ -127,57 +135,59 @@ int main(void) {
                 *(uint8_t  *)(cin + AVE2_MODE5_OFF_P9FLAG) = 0; \
                 *(int32_t  *)(cin + AVE2_OFF_NUMVIEWS)   = 1; \
                 *(int32_t  *)(cin + AVE2_OFF_NUMLAYERS)  = 1; \
-                if (withEncType) { \
-                    *(int32_t *)(cin + AVE2_OFF_ENCTYPE) = 1; \
-                    *(int32_t *)(cin + AVE2_OFF_SLICES)  = 1; \
-                } \
             } while(0)
             kern_return_t k2; size_t osz; iodyn_async_ref_t aref;
-            printf("\n=== v7 configure matrix (sel4 unless noted) ===\n");
+            const ave2_profile_t *prof = ave2_profile_get(0);
+            printf("\n=== v10 descriptor-path matrix (session live) ===\n");
 
-            /* 1: SYNC struct 0x1a0a0/0x20 */
-            CFGFILL(0); osz = 0x20; memset(out,0,sizeof(out));
+            /* [1] sel6 raw-delivery control: 0x30/0x20 zeros */
+            memset(sin6,0,sizeof(sin6)); osz = 0x20; memset(out,0,sizeof(out));
+            k2 = p_IOConnectCallStructMethod(conn, 6, sin6, 0x30, out, &osz);
+            printf("  [1 sel6 0x30/0x20]      -> 0x%08x %s ", k2, krname(k2)); dump_out(out, osz, 0x20);
+
+            /* [2] sel4 baseline 0x1a0a0/0x20 */
+            CFGFILL(); osz = 0x20; memset(out,0,sizeof(out));
             k2 = p_IOConnectCallStructMethod(conn, 4, cin, 0x1a0a0, out, &osz);
-            printf("  [1 sync 0x20]        -> 0x%08x %s\n", k2, krname(k2)); dump_out(out, osz, 0x20);
+            printf("  [2 sel4 0x1a0a0/0x20]   -> 0x%08x %s ", k2, krname(k2)); dump_out(out, osz, 0x20);
 
-            /* 2: ASYNC baseline (v6 repro) */
-            CFGFILL(0); memset(aref,0,sizeof(aref)); aref[0]=(uint64_t)wake;
-            osz = 0x20; memset(out,0,sizeof(out));
-            k2 = p_IOConnectCallAsyncStructMethod(conn, 4, wake, aref, 1, cin, 0x1a0a0, out, &osz);
-            printf("  [2 async baseline]   -> 0x%08x %s\n", k2, krname(k2)); dump_out(out, osz, 0x20);
+            /* [3] sel4 one byte short */
+            CFGFILL(); osz = 0x20; memset(out,0,sizeof(out));
+            k2 = p_IOConnectCallStructMethod(conn, 4, cin, 0x1a09c, out, &osz);
+            printf("  [3 sel4 0x1a09c/0x20]   -> 0x%08x %s ", k2, krname(k2)); dump_out(out, osz, 0x20);
 
-            /* 3: ASYNC + SetNotificationPort first */
-            if (p_SetNotif) {
-                kern_return_t kn = p_SetNotif(conn, 0, wake);
-                printf("  [3 SetNotificationPort] -> 0x%08x %s\n", kn, krname(kn));
-                CFGFILL(0); memset(aref,0,sizeof(aref)); aref[0]=(uint64_t)wake;
-                osz = 0x20; memset(out,0,sizeof(out));
-                k2 = p_IOConnectCallAsyncStructMethod(conn, 4, wake, aref, 1, cin, 0x1a0a0, out, &osz);
-                printf("  [3 async +notifport] -> 0x%08x %s\n", k2, krname(k2)); dump_out(out, osz, 0x20);
-            }
+            /* [4] sel4 just over in-band cap */
+            CFGFILL(); osz = 0x20; memset(out,0,sizeof(out));
+            k2 = p_IOConnectCallStructMethod(conn, 4, cin, 0x1004, out, &osz);
+            printf("  [4 sel4 0x1004/0x20]    -> 0x%08x %s ", k2, krname(k2)); dump_out(out, osz, 0x20);
 
-            /* 4: ASYNC + encType=1 / slices=1 */
-            CFGFILL(1); memset(aref,0,sizeof(aref)); aref[0]=(uint64_t)wake;
-            osz = 0x20; memset(out,0,sizeof(out));
-            k2 = p_IOConnectCallAsyncStructMethod(conn, 4, wake, aref, 1, cin, 0x1a0a0, out, &osz);
-            printf("  [4 async enctype=1]  -> 0x%08x %s\n", k2, krname(k2)); dump_out(out, osz, 0x20);
+            /* [5] sel4 just under cap */
+            CFGFILL(); osz = 0x20; memset(out,0,sizeof(out));
+            k2 = p_IOConnectCallStructMethod(conn, 4, cin, 0x0ffc, out, &osz);
+            printf("  [5 sel4 0x0ffc/0x20]    -> 0x%08x %s ", k2, krname(k2)); dump_out(out, osz, 0x20);
 
-            /* 5: ASYNC aref count=4 */
-            CFGFILL(0); memset(aref,0,sizeof(aref)); aref[0]=(uint64_t)wake;
-            osz = 0x20; memset(out,0,sizeof(out));
-            k2 = p_IOConnectCallAsyncStructMethod(conn, 4, wake, aref, 4, cin, 0x1a0a0, out, &osz);
-            printf("  [5 async aref n=4]   -> 0x%08x %s\n", k2, krname(k2)); dump_out(out, osz, 0x20);
-
-            /* 6: ASYNC sel5 0x1a0b0/0x150 */
-            CFGFILL(0); memset(aref,0,sizeof(aref)); aref[0]=(uint64_t)wake;
-            osz = 0x150; memset(out,0,sizeof(out));
-            k2 = p_IOConnectCallAsyncStructMethod(conn, 5, wake, aref, 1, cin, 0x1a0b0, out, &osz);
-            printf("  [6 async sel5 0x150] -> 0x%08x %s\n", k2, krname(k2)); dump_out(out, osz, 0x150);
-
-            /* 7: SYNC sel5 0x1a0b0/0x150 */
-            CFGFILL(0); osz = 0x150; memset(out,0,sizeof(out));
+            /* [6] sel5 baseline 0x1a0b0/0x150 */
+            CFGFILL(); osz = 0x150; memset(out,0,sizeof(out));
             k2 = p_IOConnectCallStructMethod(conn, 5, cin, 0x1a0b0, out, &osz);
-            printf("  [7 sync sel5 0x150]  -> 0x%08x %s\n", k2, krname(k2)); dump_out(out, osz, 0x150);
+            printf("  [6 sel5 0x1a0b0/0x150]  -> 0x%08x %s ", k2, krname(k2)); dump_out(out, osz, 0x150);
+
+            /* [7] sel5 with sel4's exact size (d9-before-gate vs c2) */
+            CFGFILL(); osz = 0x150; memset(out,0,sizeof(out));
+            k2 = p_IOConnectCallStructMethod(conn, 5, cin, 0x1a0a0, out, &osz);
+            printf("  [7 sel5 0x1a0a0/0x150]  -> 0x%08x %s ", k2, krname(k2)); dump_out(out, osz, 0x150);
+
+            /* [8] sel4 async baseline with real wake port */
+            CFGFILL(); memset(aref,0,sizeof(aref)); aref[0]=(uint64_t)wake;
+            osz = 0x20; memset(out,0,sizeof(out));
+            k2 = p_IOConnectCallAsyncStructMethod(conn, 4, wake, aref, 1, cin, 0x1a0a0, out, &osz);
+            printf("  [8 sel4 async 0x1a0a0]  -> 0x%08x %s ", k2, krname(k2)); dump_out(out, osz, 0x20);
+
+            /* [9] SetNotificationPort type sweep (arm async machinery) */
+            if (p_SetNotif) {
+                for (uint32_t t = 0; t <= 4; t++) {
+                    kern_return_t kn = p_SetNotif(conn, t, wake);
+                    printf("  [9 SetNotificationPort type=%u] -> 0x%08x %s\n", t, kn, krname(kn));
+                }
+            }
 #undef CFGFILL
         }
     }
