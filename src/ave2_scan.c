@@ -22,9 +22,11 @@
 
 #include "iokit_dyn.h"
 
+typedef char io_string_t_v[512];
+
 typedef kern_return_t (*fp_IOServiceCopyMatchingServices)(void *, mach_port_t *, uint32_t *);
-typedef io_registry_entry_t (*fp_IORegistryEntryFromPath)(mach_port_t, const io_string_t);
-typedef kern_return_t (*fp_IORegistryEntryGetPath)(io_registry_entry_t, const char *, io_string_t);
+typedef io_registry_entry_t (*fp_IORegistryEntryFromPath)(mach_port_t, const char *);
+typedef kern_return_t (*fp_IORegistryEntryGetPath)(io_registry_entry_t, const char *, char *);
 typedef kern_return_t (*fp_IOIteratorNextV)(mach_port_t, io_object_t *);
 
 static fp_IOServiceCopyMatchingServices  p_CopyMatching;
