@@ -1,0 +1,58 @@
+name: build-ave2-exploit
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'Makefile'
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'Makefile'
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app || true
+
+      - name: Show SDK
+        run: xcrun --sdk iphoneos --show-sdk-path
+
+      - name: Build exploit (arm64e)
+        run: |
+          SDK=$(xcrun --sdk iphoneos --show-sdk-path)
+          xcrun clang -O0 -g -arch arm64e \
+            -isysroot "$SDK" \
+            -fembed-bitcode \
+            -framework IOKit \
+            -framework CoreFoundation \
+            src/ave2_exploit.c \
+            -o ave2_exploit
+          file ave2_exploit
+          ls -la ave2_exploit
+
+      - name: Build reach PoC (arm64e)
+        run: |
+          SDK=$(xcrun --sdk iphoneos --show-sdk-path)
+          xcrun clang -O0 -g -arch arm64e \
+            -isysroot "$SDK" \
+            -fembed-bitcode \
+            -framework IOKit \
+            -framework CoreFoundation \
+            src/poc_ave2_reach.c \
+            -o poc_ave2_reach
+          file poc_ave2_reach
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ave2-exploit-binaries
+          path: |
+            ave2_exploit
+            poc_ave2_reach
