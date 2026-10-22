@@ -59,8 +59,7 @@ int main(void) {
                 io_object_t obj;
                 kern_return_t ik = p_IterNextV(iter, &obj);
                 if (ik == KERN_SUCCESS && obj) {
-                    printf("  copy first-hit: 0x%x
-", obj);
+                    printf("  copy first-hit: 0x%x\n", obj);
                     p_IOObjectRelease(obj);
                 }
             }
