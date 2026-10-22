@@ -1,11 +1,15 @@
 /*
- * ave2_probe_create.c v12 — clean-room descriptor-map experiments
+ * ave2_probe_create.c v13 — selector-order discriminator
  *
- * v11 lesson: experiment ORDER pollutes (a failed sel4 may leak prepared
- * wire state; later prepares return Busy=0xd9). v12 protocol: ONE create,
- * optional mlock BEFORE the FIRST-EVER sel4, ONE sel4 attempt, then exit.
- * env: AVE2_LOGCNT (monotonic), AVE2_MLOCK_MB (mlock before sel4, default 0).
+ * v12: sel4 FIRST (clean room, ±mlock 512MB) -> bc both ways; mlock is not
+ * a factor. Remaining models: (a) descriptor exists, prepare ok, map fails
+ * -> bc exit2; (b) descriptor object NULL -> bc exit1. v13 lets sel5 (also
+ * descriptor-path, in 0x1a0b0) go FIRST: if its FIRST descriptor also dies
+ * with bc -> creation/map broken generally; if d9 -> prepare-level Busy on
+ * the very first descriptor (wire leak model wrong); the subsequent sel4
+ * result reveals cross-call pollution.
  */
+
 
 
 
@@ -125,21 +129,24 @@ int main(void) {
             } while(0)
             kern_return_t k2; size_t osz; iodyn_async_ref_t aref;
             const ave2_profile_t *prof = ave2_profile_get(0);
-            printf("\n=== v12 clean-room single-shot ===\n");
+            printf("\n=== v13 selector-order discriminator (fresh session) ===\n");
             {
-                const char *emb = getenv("AVE2_MLOCK_MB");
-                size_t mb = (emb && emb[0]) ? (size_t)strtoul(emb,NULL,0) : 0;
-                void *wb = NULL; size_t WIRE = 0;
-                if (mb) {
-                    WIRE = mb<<20;
-                    wb = malloc(WIRE);
-                    if (wb) { memset(wb,0xAB,WIRE); int lk = mlock(wb,WIRE);
-                        printf("  mlock %zuMB -> %d (errno=%d)\n", mb, lk, lk?errno:0); }
-                }
+                /* [1] sel5 descriptor FIRST */
+                CFGFILL(); osz = 0x150; memset(out,0,sizeof(out));
+                k2 = p_IOConnectCallStructMethod(conn, 5, cin, 0x1a0b0, out, &osz);
+                printf("  [1 sel5 FIRST 0x1a0b0/0x150] -> 0x%08x %s ", k2, krname(k2)); dump_out(out, osz, 0x150);
+                /* [2] sel4 second */
                 CFGFILL(); osz = 0x20; memset(out,0,sizeof(out));
                 k2 = p_IOConnectCallStructMethod(conn, 4, cin, 0x1a0a0, out, &osz);
-                printf("  [sel4 FIRST 0x1a0a0/0x20]   -> 0x%08x %s ", k2, krname(k2)); dump_out(out, osz, 0x20);
-                if (wb) { munlock(wb,WIRE); free(wb); }
+                printf("  [2 sel4 second 0x1a0a0/0x20] -> 0x%08x %s ", k2, krname(k2)); dump_out(out, osz, 0x20);
+                /* [3] sel4 third */
+                CFGFILL(); osz = 0x20; memset(out,0,sizeof(out));
+                k2 = p_IOConnectCallStructMethod(conn, 4, cin, 0x1a0a0, out, &osz);
+                printf("  [3 sel4 third 0x1a0a0/0x20]  -> 0x%08x %s ", k2, krname(k2)); dump_out(out, osz, 0x20);
+                /* [4] sel5 again */
+                CFGFILL(); osz = 0x150; memset(out,0,sizeof(out));
+                k2 = p_IOConnectCallStructMethod(conn, 5, cin, 0x1a0b0, out, &osz);
+                printf("  [4 sel5 again]               -> 0x%08x %s ", k2, krname(k2)); dump_out(out, osz, 0x150);
             }
 
         }
