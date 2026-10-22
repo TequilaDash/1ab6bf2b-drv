@@ -1,13 +1,17 @@
 /*
- * ave2_scan.c — probe IOKit service matching for AVE candidates (iOS)
+ * ave2_scan.c v4 — diagnose WHY matching fails under rootless jb
  *
- * IORegistryCreateIterator returns kIOReturnNotPrivileged (0xe00002c1) on
- * iOS even with our entitlement set, but IOServiceMatching +
- * IOServiceGetMatchingService works (the exploit reached it and got a clean
- * "not found"). So: probe a wide candidate list via matching only.
+ * v3 showed even IOMobileFramebuffer (always resident) returns none =>
+ * IOServiceMatching/GetMatchingService is broken in this context, not AVE2.
  *
- * v2 also tries opening each found service with several client types to
- * fingerprint which one exposes the AVE2UserClient external-method table.
+ * v4 tests alternate discovery paths:
+ *   1. IOServiceCopyMatchingServices  (plural variant, different trap path)
+ *   2. IORegistryEntryFromPath        (direct path lookup, bypasses matching)
+ *   3. IOServiceGetMatchingService with mach_host_self vs 0 master port
+ *   4. notifications port (IOServiceAddMatchingNotification needs CF — skip)
+ *
+ * Path 2 is the key: /IODeviceTree and /IOService registry paths are stable.
+ * AVE2 lives somewhere under /arm-io/ on Apple platforms.
  */
 
 #include <stdio.h>
@@ -18,72 +22,93 @@
 
 #include "iokit_dyn.h"
 
-static const char *cands[] = {
-    /* control probes: services that MUST exist — validates matching works */
-    "IOMobileFramebuffer",
-    "AppleMobileApNonce",
-    "AppleSPUProfileDriver",
-    /* exact names used across iOS/macOS versions */
-    "AppleAVE2Driver",
-    "AppleAVE2",
-    "AppleAVE",
-    "AppleAVE3Driver",
-    "AppleAVE2V2Driver",
-    "AppleAVE2DriverV2",
-    "AppleAVE2UserClient",
-    "AppleAVE2V1Driver",
-    /* generic encoder candidates */
-    "AppleH16AVE",
-    "AppleAVE2_h16",
-    "com.apple.DriverKit.AppleAVE2",
-    NULL,
-};
+typedef kern_return_t (*fp_IOServiceCopyMatchingServices)(void *, mach_port_t *, uint32_t *);
+typedef io_registry_entry_t (*fp_IORegistryEntryFromPath)(mach_port_t, const io_string_t);
+typedef kern_return_t (*fp_IORegistryEntryGetPath)(io_registry_entry_t, const char *, io_string_t);
+typedef kern_return_t (*fp_IORegistryEntryGetProperty)(io_registry_entry_t, const char *, void *, uint32_t *);
+
+static fp_IOServiceCopyMatchingServices  p_CopyMatching;
+static fp_IORegistryEntryFromPath        p_EntryFromPath;
+static fp_IORegistryEntryGetPath         p_EntryGetPath;
 
 int main(void) {
     setvbuf(stdout, NULL, _IONBF, 0);
 
     if (iodyn_init() != 0) { printf("[-] iodyn failed\n"); return 3; }
 
-    printf("=== AVE service matching probes ===\n");
-    io_service_t found = MACH_PORT_NULL;
-    const char *found_name = NULL;
+    void *h = dlopen("/System/Library/Frameworks/IOKit.framework/IOKit", RTLD_NOW);
+    p_CopyMatching = (fp_IOServiceCopyMatchingServices)dlsym(h, "IOServiceCopyMatchingServices");
+    p_EntryFromPath = (fp_IORegistryEntryFromPath)dlsym(h, "IORegistryEntryFromPath");
+    p_EntryGetPath  = (fp_IORegistryEntryGetPath)dlsym(h, "IORegistryEntryGetPath");
+    printf("dlsym: copy=%p frompath=%p getpath=%p\n",
+           (void*)p_CopyMatching, (void*)p_EntryFromPath, (void*)p_EntryGetPath);
 
-    for (int i = 0; cands[i]; i++) {
-        void *m = p_IOServiceMatching(cands[i]);
-        if (!m) {
-            printf("  %-38s : matching=NULL\n", cands[i]);
-            continue;
-        }
-        io_service_t s = p_IOServiceGetMatchingService(IODYN_MAIN_PORT, m);
-        printf("  %-38s : %s\n", cands[i], s ? "FOUND" : "none");
-        if (s && !found) { found = s; found_name = cands[i]; }
-        else if (s) p_IOObjectRelease(s);
-    }
-
-    if (!found) {
-        printf("\n[-] no AVE service found via matching — kext may be load-on-demand\n");
-        printf("    (AppleAVE2 loads when first encoder client opens; try Video app)\n");
-        return 1;
-    }
-
-    printf("\n=== open probes on %s ===\n", found_name);
-    for (uint32_t type = 0; type <= 5; type++) {
-        io_connect_t conn = MACH_PORT_NULL;
-        kern_return_t kr = p_IOServiceOpen(found, mach_task_self(), type, &conn);
-        if (kr == KERN_SUCCESS) {
-            printf("  type=%u OPENED conn=0x%x — probe sel0 shape\n", type, conn);
-            /* probe selector 0 with a tiny struct: shape of the error tells us
-             * whether an external method table exists */
-            uint8_t ob[0x20]; size_t osz = sizeof(ob);
-            uint8_t ib[0x10]; memset(ib, 0, sizeof(ib));
-            kern_return_t kr2 = p_IOConnectCallStructMethod(conn, 0, ib, sizeof(ib), ob, &osz);
-            printf("    sel0 struct probe: 0x%x (0x%x=Unsupported means empty table)\n",
-                   kr2, IODYNUnsupported);
-            p_IOServiceClose(conn);
-        } else {
-            printf("  type=%u open: 0x%x\n", type, kr);
+    /* --- test 1: plural matching on a control service --- */
+    printf("\n=== IOServiceCopyMatchingServices (control: IOMobileFramebuffer) ===\n");
+    if (p_CopyMatching) {
+        void *m = p_IOServiceMatching("IOMobileFramebuffer");
+        printf("  matching dict: %p\n", m);
+        if (m) {
+            mach_port_t iter = MACH_PORT_NULL;
+            uint32_t cnt = 0;
+            kern_return_t kr = p_CopyMatching(m, &iter, &cnt);
+            printf("  copy: 0x%x count=%u\n", kr, cnt);
+            if (kr == KERN_SUCCESS && iter) {
+                /* drain as iterator */
+                io_object_t obj;
+                while (p_IterNext ? 0 : 1) break; /* placeholder */
+            }
         }
     }
-    p_IOObjectRelease(found);
+
+    /* --- test 2: registry path lookup (bypasses matching entirely) --- */
+    printf("\n=== IORegistryEntryFromPath probes ===\n");
+    if (p_EntryFromPath) {
+        const char *paths[] = {
+            "IOService:/",
+            "IODeviceTree:/",
+            "IOService:/AppleAVE2Driver",
+            "IOService:/arm-io/AppleAVE2Driver",
+            "IODeviceTree:/arm-io",
+            "IOService:/arm-io",
+            NULL,
+        };
+        for (int i = 0; paths[i]; i++) {
+            io_registry_entry_t e = p_EntryFromPath(IODYN_MAIN_PORT, paths[i]);
+            printf("  %-36s : %s (0x%x)\n", paths[i], e ? "FOUND" : "none", e);
+            if (e) {
+                if (p_EntryGetPath) {
+                    char buf[512] = {0};
+                    kern_return_t kr = p_EntryGetPath(e, "IOService", buf, sizeof(buf));
+                    if (kr == KERN_SUCCESS) printf("    path: %s\n", buf);
+                }
+                p_IOObjectRelease(e);
+            }
+        }
+    }
+
+    /* --- test 3: master port variants on matching --- */
+    printf("\n=== matching with different master ports ===\n");
+    {
+        void *m = p_IOServiceMatching("IOMobileFramebuffer");
+        if (m) {
+            io_service_t s1 = p_IOServiceGetMatchingService(mach_host_self(), m);
+            printf("  host_self : %s\n", s1 ? "FOUND" : "none");
+            if (s1) p_IOObjectRelease(s1);
+        }
+        m = p_IOServiceMatching("IOMobileFramebuffer");
+        if (m) {
+            io_service_t s2 = p_IOServiceGetMatchingService(0, m);
+            printf("  port 0    : %s\n", s2 ? "FOUND" : "none");
+            if (s2) p_IOObjectRelease(s2);
+        }
+        m = p_IOServiceMatching("IOMobileFramebuffer");
+        if (m) {
+            io_service_t s3 = p_IOServiceGetMatchingService(mach_task_self(), m);
+            printf("  task_self : %s\n", s3 ? "FOUND" : "none");
+            if (s3) p_IOObjectRelease(s3);
+        }
+    }
+
     return 0;
 }
