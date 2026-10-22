@@ -89,44 +89,20 @@ int main(void) {
     const char *e = getenv("AVE2_LOGCNT");
     if (e != NULL && e[0]) counter = strtoull(e, NULL, 0);
 
-    printf("=== sel1 create SYNC exact 0x6f0/0x28 (iOS layout) ===\n");
-    build_create_input(in, AVE2_IOS_CREATE_IN_SIZE, counter, 5); /* v8: mode=5 = LRB session (0x1ba27b8 dispatch on in+0x6e8) */
+    static const int modes[] = {0,1,2,3,4,5,6,7,8,9,10}; /* v9 sweep */
+    int created = 0;
     size_t osz = AVE2_IOS_CREATE_OUT_SIZE;
-    memset(out, 0, sizeof(out));
-    kern_return_t k = p_IOConnectCallStructMethod(conn, 1, in, AVE2_IOS_CREATE_IN_SIZE, out, &osz);
-    printf("  -> 0x%08x %s ", k, krname(k)); dump_out(out, osz, 0x28);
-
-    if (k == 0xe00002c2u) {
-        printf("\n=== retry: out-size 0x100 (dispatcher >= out) ===\n");
-        osz = 0x100;
-        memset(out, 0, sizeof(out));
-        k = p_IOConnectCallStructMethod(conn, 1, in, AVE2_IOS_CREATE_IN_SIZE, out, &osz);
-        printf("  -> 0x%08x %s ", k, krname(k)); dump_out(out, osz, 0x28);
-    }
-
-    if (k != 0) {
-        printf("\n=== retry: mode=2 ===\n");
-        build_create_input(in, AVE2_IOS_CREATE_IN_SIZE, ++counter, 2);
+    kern_return_t k = 0;
+    for (size_t mi = 0; mi < sizeof(modes)/sizeof(modes[0]) && !created; mi++) {
+        printf("\n=== create mode=%d SYNC exact 0x6f0/0x28 ===\n", modes[mi]);
+        build_create_input(in, AVE2_IOS_CREATE_IN_SIZE, ++counter, modes[mi]); /* v9: sweep mode */
         osz = AVE2_IOS_CREATE_OUT_SIZE;
         memset(out, 0, sizeof(out));
         k = p_IOConnectCallStructMethod(conn, 1, in, AVE2_IOS_CREATE_IN_SIZE, out, &osz);
         printf("  -> 0x%08x %s ", k, krname(k)); dump_out(out, osz, 0x28);
+        created = (k == 0);
     }
-
-    if (k != 0) {
-        printf("\n=== retry: ASYNC struct exact 0x6f0 ===\n");
-        build_create_input(in, AVE2_IOS_CREATE_IN_SIZE, ++counter, 5); /* v8: async retry keeps mode=5 */
-        iodyn_async_ref_t aref; memset(aref, 0, sizeof(aref));
-        aref[0] = (uint64_t)wake;
-        osz = AVE2_IOS_CREATE_OUT_SIZE;
-        memset(out, 0, sizeof(out));
-        k = p_IOConnectCallAsyncStructMethod(conn, 1, wake, aref, 1,
-                                             in, AVE2_IOS_CREATE_IN_SIZE, out, &osz);
-        printf("  -> 0x%08x %s ", k, krname(k)); dump_out(out, osz, 0x28);
-    }
-
-    int created = (k == 0);
-    printf("\n[create %s]\n", created ? "OK — session handle in out+0x00" : "FAILED");
+    printf("\n[create sweep %s]\n", created ? "OK — session handle in out+0x00" : "ALL modes FAILED");
 
     if ((e = getenv("AVE2_CONFIGURE")) != NULL && e[0] == '1') {
         if (!created) {
