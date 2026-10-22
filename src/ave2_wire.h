@@ -216,6 +216,58 @@ _Static_assert(sizeof(struct ave2_cmdbuf_header) == 0x338, "header must be 0x338
 #define AVE2_CREATE_OFF_ENCTYPE  0x918u   /* 640538.c:61 */
 
 /* ---------------------------------------------------------------------------
+ * iOS 26.0.1 create profile (iPhone12,1 / J375c / AppleAVE2 904.76.7)
+ * Source: kernelcache_research_26.0.1.bin static RE, 2026-10-22 (capstone).
+ *
+ * Dispatch table: kernelcache file offset 0xbcd678, stride 0x18,
+ *   row = {funcPAC, inSize<<32, outSize<<32}; stored pointer qwords carry the
+ *   kernelcache FILE OFFSET in the low 32 bits (0x1b9abdc ∈ kext __TEXT_EXEC
+ *   fo 0x1a1caf0..0x1bb68d0; IOKit cluster 0x15de7bc.. ∈ kernel __TEXT_EXEC).
+ *   sel1 create 0x6f0/0x28 | sel2 destroy 0x28/0x20 | sel3 0x38/0x20
+ *   sel4 configure 0x1a0a0/0x20 (== macOS) | sel5 0x1a0b0/0x150 | sel6..10 0x30/0x20
+ *
+ * The iOS kernel dispatcher pre-checks the table sizes with EQUALITY:
+ * device evidence run — in-size ladder 0x920..0x2000 × sel1..10 all returned
+ * 0xe00002c2 (dispatcher reject) with untouched out; the create handler's own
+ * size-mismatch path (@0x1b9ae14) returns 0xe00002bc and was never observed.
+ * ⇒ send EXACT in/out sizes from the table.
+ *
+ * Create chain: handler 0x1b9abdc (gate 0x6f0/0x28) → Open 0x1b9b210 →
+ *   AVE_UCCmd_CheckParam_Open 0x1b98274, field gates (all verified in disasm):
+ *   +0x28  char[15] == "904.76.7"  (memcmp 0xf @0x1b983b4; str @fo 0x2886db;
+ *           mismatch → 0xfffffc09, log line 69)
+ *   +0x8c  DPM: 0x1ab1574 → 0x1ab1518(in+0x90): three u64 slots @+0x90/0x98/0xa0,
+ *           bit-gated checks — ALL-ZERO passes (0x1ab155c ret 0)
+ *   +0xac  DLB: 0x1b89954: [in+0xac] count <= 6, [in+0xb0] <= 2, then count ×
+ *           0x1b898c0 entries (stride 0x30 from +0xb4). count==0 short-circuits OK.
+ *   +0x5d8 u64 counter — must be STRICTLY GREATER than kernel static
+ *           [kdata 0x3a9bb58+0xc60]; kernel stores our value on success
+ *           (0x1b2c6c8) ⇒ monotonic, increment per attempt (macOS analogue +0x808)
+ *   +0x5e0 u8[0x100] log blob — copied verbatim into kernel static, content free
+ *   +0x6e0 s32 log level >= 1 (0x1b2c5a8)  else 0xfffffc17
+ *   +0x6e4 s32 log count > 0  (0x1b2c5b8)  else 0xfffffc17
+ *   +0x6e8 u32 mode: (x-1) <= 3 ⇒ {1,2,3,4} (0x1b98758), else "wrong common
+ *           parameters" (log line 101)
+ * Open continuation (0x1b9b504): 0x1a496b8(in+0x38) → logger 0x1b2c5c8(in+0x5d8,
+ *   in+0x5e0) → 0x1ba27b8(uc, in+0x38, [in+0x6e8]) = session create from the
+ *   params sub-struct at +0x38 (zeros tolerated at check stage).
+ * Output (0x1b9adf0-0x1b9adfc + 0x1b9b558-0x1b9b564):
+ *   out+0x00 u64 = uc+0xf8 | out+0x08/0x10 = echo in+0x08/0x10 |
+ *   out+0x18 s32 = status  | out+0x20 u64 = uc+0xe8..0xf0 pair
+ */
+#define AVE2_IOS_CREATE_IN_SIZE      0x6f0u  /* dispatch table row1 (sel1) */
+#define AVE2_IOS_CREATE_OUT_SIZE     0x28u
+#define AVE2_IOS_CREATE_OFF_VERSION  0x28u
+#define AVE2_IOS_CREATE_OFF_PARAMS   0x38u
+#define AVE2_IOS_CREATE_OFF_DPM      0x8cu   /* 3×u64 at +0x90/0x98/0xa0, zeros pass */
+#define AVE2_IOS_CREATE_OFF_DLB      0xacu   /* count<=6; [+0xb0]<=2; entries stride 0x30 */
+#define AVE2_IOS_CREATE_OFF_LOGCNT   0x5d8u  /* u64 > kernel static counter, monotonic */
+#define AVE2_IOS_CREATE_OFF_LOGBUF   0x5e0u  /* u8[0x100] */
+#define AVE2_IOS_CREATE_OFF_LOGLVL   0x6e0u  /* s32 >= 1 */
+#define AVE2_IOS_CREATE_OFF_LOGNUM   0x6e4u  /* s32 > 0 */
+#define AVE2_IOS_CREATE_OFF_MODE     0x6e8u  /* u32 in {1,2,3,4} */
+
+/* ---------------------------------------------------------------------------
  * MODE-5 / HEVC-10bit-multipass LRB overflow path (decomp_more/fffffff0084ccdac.c)
  *
  * The overflowing calculator is FUN_fffffff0084eedf8 (fixed; vuln twin
