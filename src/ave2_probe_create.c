@@ -1,34 +1,31 @@
 /*
- * ave2_probe_create.c v10 — descriptor-path discrimination matrix
+ * ave2_probe_create.c v11 — descriptor-map wall discrimination
  *
- * Kernel+trap RE (2026-10-23) established:
- *  - MIG trap family builds IOExternalMethodArguments{version=2}: raw
- *    structureInput lands at +0x30 only for in-band structs (<=4096);
- *    bigger structs ride the OOL descriptor at +0x40.
- *  - Kernel externalMethod precheck compares dispatch-row sizes EXACTLY
- *    (raw size OR descriptor length) -> mismatch = 0xe00002c2.
- *  - sel4 (0x1b9c7d4) has TWO 0xe00002bc exits: (1) both inputs
- *    NULL, (2) descriptor map step +0xe8(desc,0x1000) returned NULL
- *    ("faild to prepare memory"). Device sees bc with untouched out ->
- *    descriptor delivered but map failed. sel5 returns 0xe00002d9
- *    (Busy) from the same +0xd8 prepare slot -> unexplained asymmetry.
- * v10 probes (each vs a fresh session):
- *  [1] sel6 0x30/0x20      raw-delivery control (expect NOT bc)
- *  [2] sel4 0x1a0a0/0x20   baseline (expect bc)
- *  [3] sel4 0x1a09c/0x20   one short of exact (expect c2 if precheck seen)
- *  [4] sel4 0x1004/0x20    just over in-band cap (MIG err vs c2 vs bc)
- *  [5] sel4 0x0ffc/0x20    just under cap (expect c2)
- *  [6] sel5 0x1a0b0/0x150  baseline (expect d9)
- *  [7] sel5 0x1a0a0/0x150  wrong size for sel5 (d9-before-gate vs c2)
- *  [8] sel4 async baseline (expect bc)
- *  [9] SetNotificationPort type sweep 0..4 (arm async machinery)
+ * v10 facts (device):
+ *  - dispatcher precheck sees OOL descriptor length EXACTLY (ladder c2) -> row match at 0x1a0a0
+ *  - sel4 exact -> 0xbc, out untouched (kext map step NULL / "faild to prepare memory")
+ *  - sel5 exact -> 0xe00002d9 = translate(AVE -1011) (session-state reject, raw path)
+ *  - sel6 raw   -> 0xe00002d9 (control; reaches AVE session)
+ * Theory under test (v11): IOMemoryDescriptor::map wire-gate denies the probe
+ *  task (no wired memory allowance) -> mlock a big buffer first; plus ordering
+ *  and repeatability checks (state pollution vs clean first-call).
+ * v11 probes (fresh session each, LOGCNT monotonic):
+ *  [A] sel4 exact FIRST call (no mlock)          baseline reorder test
+ *  [B] mlock 256MB, touch, then sel4 exact       wire-allowance theory
+ *  [C] sel4 exact twice in a row                 repeatability
+ *  [D] sel5 exact after mlock                    d9 -> ?
+ *  [E] sel6 raw after mlock (control)            d9 expected
+ *  [F] sel4 async + real wake port after mlock
  */
+
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
 #include <mach/mach.h>
+#include <sys/mman.h>
+#include <errno.h>
 
 #include "iokit_dyn.h"
 #include "ave2_wire.h"
@@ -138,57 +135,54 @@ int main(void) {
             } while(0)
             kern_return_t k2; size_t osz; iodyn_async_ref_t aref;
             const ave2_profile_t *prof = ave2_profile_get(0);
-            printf("\n=== v10 descriptor-path matrix (session live) ===\n");
+            printf("\n=== v11 descriptor-map wall matrix (session live) ===\n");
 
-            /* [1] sel6 raw-delivery control: 0x30/0x20 zeros */
-            memset(sin6,0,sizeof(sin6)); osz = 0x20; memset(out,0,sizeof(out));
-            k2 = p_IOConnectCallStructMethod(conn, 6, sin6, 0x30, out, &osz);
-            printf("  [1 sel6 0x30/0x20]      -> 0x%08x %s ", k2, krname(k2)); dump_out(out, osz, 0x20);
-
-            /* [2] sel4 baseline 0x1a0a0/0x20 */
+            /* [A] sel4 exact as FIRST call after create */
             CFGFILL(); osz = 0x20; memset(out,0,sizeof(out));
             k2 = p_IOConnectCallStructMethod(conn, 4, cin, 0x1a0a0, out, &osz);
-            printf("  [2 sel4 0x1a0a0/0x20]   -> 0x%08x %s ", k2, krname(k2)); dump_out(out, osz, 0x20);
+            printf("  [A sel4 first 0x1a0a0/0x20] -> 0x%08x %s ", k2, krname(k2)); dump_out(out, osz, 0x20);
 
-            /* [3] sel4 one byte short */
+            /* [B] mlock 256MB then sel4 exact */
+            {
+                const size_t WIRE = 256ull<<20;
+                void *wb = malloc(WIRE);
+                int locked = -1;
+                if (wb) {
+                    memset(wb, 0xAB, WIRE); /* fault in */
+                    locked = mlock(wb, WIRE);
+                    printf("  [B] mlock 256MB -> %d (errno=%d)\n", locked, locked?errno:0);
+                }
+                CFGFILL(); osz = 0x20; memset(out,0,sizeof(out));
+                k2 = p_IOConnectCallStructMethod(conn, 4, cin, 0x1a0a0, out, &osz);
+                printf("  [B sel4 after mlock]        -> 0x%08x %s ", k2, krname(k2)); dump_out(out, osz, 0x20);
+                if (wb && locked==0) munlock(wb, WIRE);
+                free(wb);
+            }
+
+            /* [C] sel4 exact twice in a row */
             CFGFILL(); osz = 0x20; memset(out,0,sizeof(out));
-            k2 = p_IOConnectCallStructMethod(conn, 4, cin, 0x1a09c, out, &osz);
-            printf("  [3 sel4 0x1a09c/0x20]   -> 0x%08x %s ", k2, krname(k2)); dump_out(out, osz, 0x20);
-
-            /* [4] sel4 just over in-band cap */
+            k2 = p_IOConnectCallStructMethod(conn, 4, cin, 0x1a0a0, out, &osz);
+            printf("  [C1 sel4 repeat]            -> 0x%08x %s ", k2, krname(k2)); dump_out(out, osz, 0x20);
             CFGFILL(); osz = 0x20; memset(out,0,sizeof(out));
-            k2 = p_IOConnectCallStructMethod(conn, 4, cin, 0x1004, out, &osz);
-            printf("  [4 sel4 0x1004/0x20]    -> 0x%08x %s ", k2, krname(k2)); dump_out(out, osz, 0x20);
+            k2 = p_IOConnectCallStructMethod(conn, 4, cin, 0x1a0a0, out, &osz);
+            printf("  [C2 sel4 repeat2]           -> 0x%08x %s ", k2, krname(k2)); dump_out(out, osz, 0x20);
 
-            /* [5] sel4 just under cap */
-            CFGFILL(); osz = 0x20; memset(out,0,sizeof(out));
-            k2 = p_IOConnectCallStructMethod(conn, 4, cin, 0x0ffc, out, &osz);
-            printf("  [5 sel4 0x0ffc/0x20]    -> 0x%08x %s ", k2, krname(k2)); dump_out(out, osz, 0x20);
-
-            /* [6] sel5 baseline 0x1a0b0/0x150 */
+            /* [D] sel5 exact after mlock experiment */
             CFGFILL(); osz = 0x150; memset(out,0,sizeof(out));
             k2 = p_IOConnectCallStructMethod(conn, 5, cin, 0x1a0b0, out, &osz);
-            printf("  [6 sel5 0x1a0b0/0x150]  -> 0x%08x %s ", k2, krname(k2)); dump_out(out, osz, 0x150);
+            printf("  [D sel5 0x1a0b0/0x150]      -> 0x%08x %s ", k2, krname(k2)); dump_out(out, osz, 0x150);
 
-            /* [7] sel5 with sel4's exact size (d9-before-gate vs c2) */
-            CFGFILL(); osz = 0x150; memset(out,0,sizeof(out));
-            k2 = p_IOConnectCallStructMethod(conn, 5, cin, 0x1a0a0, out, &osz);
-            printf("  [7 sel5 0x1a0a0/0x150]  -> 0x%08x %s ", k2, krname(k2)); dump_out(out, osz, 0x150);
+            /* [E] sel6 raw control */
+            memset(sin6,0,sizeof(sin6)); osz = 0x20; memset(out,0,sizeof(out));
+            k2 = p_IOConnectCallStructMethod(conn, 6, sin6, 0x30, out, &osz);
+            printf("  [E sel6 0x30/0x20]          -> 0x%08x %s ", k2, krname(k2)); dump_out(out, osz, 0x20);
 
-            /* [8] sel4 async baseline with real wake port */
+            /* [F] sel4 async with real wake port */
             CFGFILL(); memset(aref,0,sizeof(aref)); aref[0]=(uint64_t)wake;
             osz = 0x20; memset(out,0,sizeof(out));
             k2 = p_IOConnectCallAsyncStructMethod(conn, 4, wake, aref, 1, cin, 0x1a0a0, out, &osz);
-            printf("  [8 sel4 async 0x1a0a0]  -> 0x%08x %s ", k2, krname(k2)); dump_out(out, osz, 0x20);
+            printf("  [F sel4 async 0x1a0a0]      -> 0x%08x %s ", k2, krname(k2)); dump_out(out, osz, 0x20);
 
-            /* [9] SetNotificationPort type sweep (arm async machinery) */
-            if (p_SetNotif) {
-                for (uint32_t t = 0; t <= 4; t++) {
-                    kern_return_t kn = p_SetNotif(conn, t, wake);
-                    printf("  [9 SetNotificationPort type=%u] -> 0x%08x %s\n", t, kn, krname(kn));
-                }
-            }
-#undef CFGFILL
         }
     }
 
