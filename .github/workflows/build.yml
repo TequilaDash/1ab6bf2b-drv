@@ -49,9 +49,19 @@ jobs:
             src/poc_ave2_reach.c -o poc_ave2_reach
           file poc_ave2_reach
 
+      - name: Build registry scan tool (arm64, iOS)
+        run: |
+          SDK=$(xcrun --sdk iphoneos --show-sdk-path)
+          xcrun clang -O2 -g -arch arm64 -isysroot "$SDK" \
+            -miphoneos-version-min=14.0 \
+            src/ave2_scan.c -o ave2_scan \
+            -framework CoreFoundation
+          file ave2_scan
+
       - name: Sign exploit with entitlements (ldid)
         run: |
           ldid -Sresources/entitlements.plist ave2_exploit
+          ldid -Sresources/entitlements.plist ave2_scan
           ldid -e ave2_exploit | head -20
 
       - name: Package ipa
@@ -72,5 +82,6 @@ jobs:
           name: ave2-exploit-release
           path: |
             ave2_exploit
+            ave2_scan
             poc_ave2_reach
             ave2_exploit.ipa
