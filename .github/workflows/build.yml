@@ -56,9 +56,14 @@ jobs:
 
       - name: Package ipa
         run: |
-          chmod +x scripts/make_ipa.sh
-          ./scripts/make_ipa.sh ave2_exploit ave2_exploit.ipa
-          unzip -l ave2_exploit.ipa
+          STAGE=$(mktemp -d)
+          APP="$STAGE/Payload/ave2_exploit.app"
+          mkdir -p "$APP"
+          cp ave2_exploit "$APP/ave2_exploit"
+          cp resources/Info.plist "$APP/Info.plist"
+          cd "$STAGE"
+          zip -qr "$GITHUB_WORKSPACE/ave2_exploit.ipa" Payload
+          unzip -l "$GITHUB_WORKSPACE/ave2_exploit.ipa"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
