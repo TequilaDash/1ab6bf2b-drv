@@ -78,8 +78,9 @@ static int iodyn_init(void) {
     return 0;
 }
 
-/* main port: historically mach_host_self(); kIOMainPortDefault == 0 in newer SDKs.
- * Using mach_host_self() works everywhere. */
-#define IODYN_MAIN_PORT mach_host_self()
+/* main port: on iOS the ONLY working value is 0 (kIOMainPortDefault).
+ * mach_host_self() and mach_task_self() both return "none" (verified on
+ * iPhone12,1 / 26.0.1, scan v4 evidence). */
+#define IODYN_MAIN_PORT 0
 
 #endif /* IOKIT_DYN_H */
