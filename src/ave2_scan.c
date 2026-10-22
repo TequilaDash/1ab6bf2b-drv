@@ -25,11 +25,12 @@
 typedef kern_return_t (*fp_IOServiceCopyMatchingServices)(void *, mach_port_t *, uint32_t *);
 typedef io_registry_entry_t (*fp_IORegistryEntryFromPath)(mach_port_t, const io_string_t);
 typedef kern_return_t (*fp_IORegistryEntryGetPath)(io_registry_entry_t, const char *, io_string_t);
-typedef kern_return_t (*fp_IORegistryEntryGetProperty)(io_registry_entry_t, const char *, void *, uint32_t *);
+typedef kern_return_t (*fp_IOIteratorNextV)(mach_port_t, io_object_t *);
 
 static fp_IOServiceCopyMatchingServices  p_CopyMatching;
 static fp_IORegistryEntryFromPath        p_EntryFromPath;
 static fp_IORegistryEntryGetPath         p_EntryGetPath;
+static fp_IOIteratorNextV                p_IterNextV;
 
 int main(void) {
     setvbuf(stdout, NULL, _IONBF, 0);
@@ -40,6 +41,7 @@ int main(void) {
     p_CopyMatching = (fp_IOServiceCopyMatchingServices)dlsym(h, "IOServiceCopyMatchingServices");
     p_EntryFromPath = (fp_IORegistryEntryFromPath)dlsym(h, "IORegistryEntryFromPath");
     p_EntryGetPath  = (fp_IORegistryEntryGetPath)dlsym(h, "IORegistryEntryGetPath");
+    p_IterNextV     = (fp_IOIteratorNextV)dlsym(h, "IOIteratorNext");
     printf("dlsym: copy=%p frompath=%p getpath=%p\n",
            (void*)p_CopyMatching, (void*)p_EntryFromPath, (void*)p_EntryGetPath);
 
@@ -54,9 +56,13 @@ int main(void) {
             kern_return_t kr = p_CopyMatching(m, &iter, &cnt);
             printf("  copy: 0x%x count=%u\n", kr, cnt);
             if (kr == KERN_SUCCESS && iter) {
-                /* drain as iterator */
                 io_object_t obj;
-                while (p_IterNext ? 0 : 1) break; /* placeholder */
+                kern_return_t ik = p_IterNextV(iter, &obj);
+                if (ik == KERN_SUCCESS && obj) {
+                    printf("  copy first-hit: 0x%x
+", obj);
+                    p_IOObjectRelease(obj);
+                }
             }
         }
     }
@@ -79,7 +85,7 @@ int main(void) {
             if (e) {
                 if (p_EntryGetPath) {
                     char buf[512] = {0};
-                    kern_return_t kr = p_EntryGetPath(e, "IOService", buf, sizeof(buf));
+                    kern_return_t kr = p_EntryGetPath(e, "IOService", buf);
                     if (kr == KERN_SUCCESS) printf("    path: %s\n", buf);
                 }
                 p_IOObjectRelease(e);
