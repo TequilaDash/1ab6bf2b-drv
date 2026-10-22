@@ -6,12 +6,13 @@ on:
     paths:
       - 'src/**'
       - 'Makefile'
+      - 'scripts/**'
+      - 'resources/**'
       - '.github/workflows/build.yml'
   pull_request:
     paths:
       - 'src/**'
       - 'Makefile'
-      - '.github/workflows/build.yml'
   workflow_dispatch: {}
 
 jobs:
@@ -20,47 +21,51 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Select Xcode
-        run: |
-          if [ -d /Applications/Xcode_*.app ]; then
-            sudo xcode-select -s "/Applications/Xcode_*.app"
-          else
-            sudo xcode-select -s /Applications/Xcode.app || true
-          fi
-          xcode-select -p
-
       - name: Show toolchain
         run: |
           xcrun --sdk iphoneos --show-sdk-path
           xcrun clang --version | head -1
-          xcrun clang -print-targets | grep -iE 'arm64|aarch64' | head -5
 
-      - name: Compile exploit (arm64e)
+      - name: Install ldid
+        run: |
+          brew install ldid
+          ldid -V 2>&1 | head -1 || true
+
+      - name: Build exploit (arm64, iOS)
         run: |
           SDK=$(xcrun --sdk iphoneos --show-sdk-path)
-          echo "SDK=$SDK"
-          xcrun clang -O0 -g -arch arm64e -isysroot "$SDK" \
-            -framework IOKit -framework CoreFoundation \
-            src/ave2_exploit.c -o ave2_exploit 2>&1
-          echo "exit=$?"
-          file ave2_exploit || true
-          ls -la ave2_exploit || true
+          xcrun clang -O2 -g -arch arm64 -isysroot "$SDK" \
+            -miphoneos-version-min=14.0 \
+            src/ave2_exploit.c -o ave2_exploit \
+            -framework CoreFoundation
+          file ave2_exploit
+          ls -la ave2_exploit
 
-      - name: Compile reach PoC (arm64e)
+      - name: Build reach PoC (arm64e, IOKit direct)
         run: |
           SDK=$(xcrun --sdk iphoneos --show-sdk-path)
           xcrun clang -O0 -g -arch arm64e -isysroot "$SDK" \
             -framework IOKit -framework CoreFoundation \
-            src/poc_ave2_reach.c -o poc_ave2_reach 2>&1
-          echo "exit=$?"
-          file poc_ave2_reach || true
-          ls -la poc_ave2_reach || true
+            src/poc_ave2_reach.c -o poc_ave2_reach
+          file poc_ave2_reach
+
+      - name: Sign exploit with entitlements (ldid)
+        run: |
+          ldid -Sresources/entitlements.plist ave2_exploit
+          ldid -e ave2_exploit | head -20
+
+      - name: Package ipa
+        run: |
+          chmod +x scripts/make_ipa.sh
+          ./scripts/make_ipa.sh ave2_exploit ave2_exploit.ipa
+          unzip -l ave2_exploit.ipa
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         if: success()
         with:
-          name: ave2-exploit-binaries
+          name: ave2-exploit-release
           path: |
             ave2_exploit
             poc_ave2_reach
+            ave2_exploit.ipa
