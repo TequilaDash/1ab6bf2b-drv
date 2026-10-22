@@ -6,51 +6,59 @@ on:
     paths:
       - 'src/**'
       - 'Makefile'
+      - '.github/workflows/build.yml'
   pull_request:
     paths:
       - 'src/**'
       - 'Makefile'
+      - '.github/workflows/build.yml'
   workflow_dispatch: {}
 
 jobs:
   build:
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
 
       - name: Select Xcode
-        run: sudo xcode-select -s /Applications/Xcode.app || true
+        run: |
+          if [ -d /Applications/Xcode_*.app ]; then
+            sudo xcode-select -s "/Applications/Xcode_*.app"
+          else
+            sudo xcode-select -s /Applications/Xcode.app || true
+          fi
+          xcode-select -p
 
-      - name: Show SDK
-        run: xcrun --sdk iphoneos --show-sdk-path
+      - name: Show toolchain
+        run: |
+          xcrun --sdk iphoneos --show-sdk-path
+          xcrun clang --version | head -1
+          xcrun clang -print-targets | grep -iE 'arm64|aarch64' | head -5
 
-      - name: Build exploit (arm64e)
+      - name: Compile exploit (arm64e)
         run: |
           SDK=$(xcrun --sdk iphoneos --show-sdk-path)
-          xcrun clang -O0 -g -arch arm64e \
-            -isysroot "$SDK" \
-            -fembed-bitcode \
-            -framework IOKit \
-            -framework CoreFoundation \
-            src/ave2_exploit.c \
-            -o ave2_exploit
-          file ave2_exploit
-          ls -la ave2_exploit
+          echo "SDK=$SDK"
+          xcrun clang -O0 -g -arch arm64e -isysroot "$SDK" \
+            -framework IOKit -framework CoreFoundation \
+            src/ave2_exploit.c -o ave2_exploit 2>&1
+          echo "exit=$?"
+          file ave2_exploit || true
+          ls -la ave2_exploit || true
 
-      - name: Build reach PoC (arm64e)
+      - name: Compile reach PoC (arm64e)
         run: |
           SDK=$(xcrun --sdk iphoneos --show-sdk-path)
-          xcrun clang -O0 -g -arch arm64e \
-            -isysroot "$SDK" \
-            -fembed-bitcode \
-            -framework IOKit \
-            -framework CoreFoundation \
-            src/poc_ave2_reach.c \
-            -o poc_ave2_reach
-          file poc_ave2_reach
+          xcrun clang -O0 -g -arch arm64e -isysroot "$SDK" \
+            -framework IOKit -framework CoreFoundation \
+            src/poc_ave2_reach.c -o poc_ave2_reach 2>&1
+          echo "exit=$?"
+          file poc_ave2_reach || true
+          ls -la poc_ave2_reach || true
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
+        if: success()
         with:
           name: ave2-exploit-binaries
           path: |
