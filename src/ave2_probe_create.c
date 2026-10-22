@@ -83,6 +83,10 @@ int main(void) {
     static uint8_t in[0x1a0a0];
     static uint8_t out[0x400];
     uint64_t counter = 0x0000700000000001ULL;
+    /* each successful create STORES the counter into a kernel static
+     * (0x1b2c6c8) until reboot; a rerun in the same boot must exceed it.
+     * Override with AVE2_LOGCNT (hex or dec). */
+    if ((e = getenv("AVE2_LOGCNT")) != NULL && e[0]) counter = strtoull(e, NULL, 0);
     const char *e;
 
     printf("=== sel1 create SYNC exact 0x6f0/0x28 (iOS layout) ===\n");
