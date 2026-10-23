@@ -72,6 +72,14 @@ static kern_return_t create_session(int mode, io_connect_t *conn) {
         const char *cp = getenv("AVE2_CPATCH");
         if (cp != NULL && cp[0]) apply_patch(in, cp);
     }
+    if (getenv("AVE2_CMAGIC")) {
+        /* v32: real-client create-in fields (media-toolbox report section2):
+           +0x18=0x7088980A magic, +0x20=timestamp, +0x6E8=arg1 */
+        *(uint32_t *)(in + 0x18) = 0x7088980AU;
+        *(uint64_t *)(in + 0x20) = (uint64_t)mach_absolute_time();
+        *(uint32_t *)(in + 0x6E8) = 1;
+        printf("    [cmagic] +0x18=0x7088980A +0x20=ts +0x6e8=1\n");
+    }
     size_t osz = AVE2_IOS_CREATE_OUT_SIZE;
     memset(out, 0, sizeof(out));
     kern_return_t k1 = p_IOConnectCallStructMethod(*conn, 1, in, AVE2_IOS_CREATE_IN_SIZE, out, &osz);
