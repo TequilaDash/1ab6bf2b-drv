@@ -579,6 +579,45 @@ int main(void) {
           }
         }
         printf("=== start5 done ===\n");
+    } else if (test != NULL && strcmp(test, "s5v") == 0) {
+        /* v39: sel5 -1015 判据 = [codec_obj+0x78] == [session+0x3d38+0xa8].
+           mdfn 里 x21=session+0x3d38, x1=codec+0x50 => x1+0x28=codec+0x78, x21+0xa8=session+0x3de0.
+           猜 session+0x3d38 是 sel5 输入 +0x338 的拷贝 => 目标字段 sel5_in+0x3e0。扫 offset x value。
+           命中判据: sel5 返回码 != 0xe0000001(-1015)。 */
+        const char *patch = getenv("AVE2_MS_PATCH");
+        int m = getenv("AVE2_CREATE_MODE") ? atoi(getenv("AVE2_CREATE_MODE")) : 1;
+        unsigned off = getenv("AVE2_S5V_OFF") ? (unsigned)strtoul(getenv("AVE2_S5V_OFF"), NULL, 0) : 0x3e0;
+        unsigned lo  = getenv("AVE2_S5V_LO")  ? (unsigned)strtoul(getenv("AVE2_S5V_LO"), NULL, 0) : 0;
+        unsigned hi  = getenv("AVE2_S5V_HI")  ? (unsigned)strtoul(getenv("AVE2_S5V_HI"), NULL, 0) : 0x40;
+        int where = getenv("AVE2_S5V_WHERE") ? atoi(getenv("AVE2_S5V_WHERE")) : 0;
+        printf("=== s5v: off=0x%x lo=0x%x hi=0x%x where=%d mode=%d ===\n", off, lo, hi, where, m);
+        if (create_session(m, &c) != 0) { printf("[-] create\n"); return 42; }
+        { uint8_t din[0x40]; memset(din,0,sizeof(din)); memcpy(din,"904.76.7",8);
+          iodyn_async_ref_t aref; memset(aref,0,sizeof(aref)); aref[0]=1;
+          memset(out,0xAA,sizeof(out)); size_t o=0x20;
+          kern_return_t kr = p_IOConnectCallAsyncStructMethod(c,3,wake,aref,8,din,0x38,out,&o);
+          printf("    sel3 async -> 0x%08x\n", kr); }
+        drain_wake(wake, 200);
+        fill_cfg(0,1920,1080,2,1,0,0);
+        sel4_p("st", c, 0, 0x1a0a0, patch);
+        for (unsigned v = lo; v <= hi; v++) {
+            uint8_t d5[0x1a0b0]; memset(d5,0,sizeof(d5)); memcpy(d5,stat_in,0x1a0a0);
+            if (off + 4 <= sizeof(d5)) *(uint32_t *)(d5 + off) = v;
+            if (where) { uint8_t d4[0x1a0a0]; memset(d4,0,sizeof(d4)); memcpy(d4,stat_in,0x1a0a0);
+                         apply_patch_quiet(d4, patch);
+                         if (off + 4 <= sizeof(d4)) *(uint32_t *)(d4 + off) = v;
+                         uint8_t o4[0x20]; size_t o4z=0x20; memset(o4,0xAA,sizeof(o4));
+                         p_IOConnectCallStructMethod(c,4,d4,sizeof(d4),o4,&o4z); }
+            uint8_t o5[0x150]; size_t o5z=0x150; memset(o5,0xAA,sizeof(o5));
+            kern_return_t k5 = p_IOConnectCallStructMethod(c,5,d5,sizeof(d5),o5,&o5z);
+            if (k5 != 0xe0000001u) {
+                printf("    [HIT v=0x%x] sel5 -> 0x%08x %s osz=%zu out0:", v, k5, krname(k5), o5z);
+                for (size_t q=0;q<16&&q<o5z;q++) printf("%02x", o5[q]);
+                printf("\n");
+            } else if (v==lo || v==hi) printf("    [v=0x%x] sel5 -> 0x%08x (baseline)\n", v, k5);
+        }
+        printf("=== s5v done ===\n");
+        destroy_close(c);
     } else {
         /* default battery: enctype sweep + no-create ladder */
         printf("\n=== S1 create m1: enctype sweep (static) ===\n");
