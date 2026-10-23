@@ -256,6 +256,47 @@ int main(void) {
             for (size_t q = 0; q < 16 && q < o7z; q++) printf("%02x", o7[q]);
             printf("\n"); }
         destroy_close(c);
+    } else if (test != NULL && strcmp(test, "s2reg") == 0) {
+        /* v31: real-client sequence = create -> sel2(session register) -> sel4 -> sel5.
+           media-toolbox report section4: sel2 in 0x28: +0x00 cookie(this[0]), +0x08/+0x10=0,
+           +0x18=0x7088980A magic, +0x20=timestamp; out 0x20 overlaps in+0x10. */
+        const char *patch = getenv("AVE2_MS_PATCH");
+        printf("=== s2reg: create -> sel2(register) -> sel4 -> sel5 ===\n");
+        static const char *ckname[] = {"out0", "out1", "zero", "magic"};
+        for (int ck = 0; ck < 4; ck++) {
+            printf("--- s2reg cookie=%d (%s) ---\n", ck, ckname[ck]);
+            if (create_session(1, &c) != 0) { printf("[-] create\n"); break; }
+            printf("    [create out] ");
+            for (size_t q = 0; q < 0x28; q++) printf("%02x", out[q]);
+            printf("\n");
+            uint64_t cookie;
+            switch (ck) {
+            case 0: cookie = *(uint64_t *)(out + 0x00); break;
+            case 1: cookie = *(uint64_t *)(out + 0x08); break;
+            case 2: cookie = 0; break;
+            default: cookie = 0x7088980AULL; break;
+            }
+            uint8_t io2[0x30]; memset(io2, 0, sizeof(io2));
+            *(uint64_t *)(io2 + 0x00) = cookie;
+            *(uint64_t *)(io2 + 0x18) = 0x7088980AULL;
+            *(uint64_t *)(io2 + 0x20) = (uint64_t)mach_absolute_time();
+            size_t in2z = 0x28, o2z = 0x20;
+            kern_return_t k2 = p_IOConnectCallStructMethod(c, 2, io2, in2z, io2 + 0x10, &o2z);
+            printf("    [sel2] -> 0x%08x buf(+0x10):", k2);
+            for (size_t q = 0; q < 0x20; q++) printf("%02x", io2[0x10 + q]);
+            printf("\n");
+            fill_cfg(0, 1920, 1080, 2, 1, 0, 0);
+            sel4_p("s2pre", c, 0, 0x1a0a0, patch);
+            uint8_t d5[0x1a0b0]; memset(d5, 0, sizeof(d5)); memcpy(d5, stat_in, 0x1a0a0);
+            *(uint32_t *)(d5 + 0x28) = 1;
+            uint8_t o5[0x150]; size_t o5z = 0x150; memset(o5, 0xAA, sizeof(o5));
+            kern_return_t k5 = p_IOConnectCallStructMethod(c, 5, d5, sizeof(d5), o5, &o5z);
+            printf("    [s5] sel5 -> 0x%08x osz=%zu out0:", k5, o5z);
+            for (size_t q = 0; q < 16 && q < o5z; q++) printf("%02x", o5[q]);
+            printf("\n");
+            destroy_close(c);
+        }
+        printf("=== s2reg done ===\n");
     } else if (test != NULL && strcmp(test, "start5") == 0) {
         /* v28: sel5 UCStart matrix. kext verifier 0x1b98f14 requires:
            0x1b98084 s64 nonneg (in+0x10/+0x18/+0x20), [in+0x28] u32 != 0,
