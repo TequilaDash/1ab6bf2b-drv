@@ -19,6 +19,7 @@
 #include <string.h>
 #include <stdint.h>
 #include <mach/mach.h>
+#include <mach/message.h>
 #include <mach/mach_time.h>
 #include <unistd.h>
 #include <sys/mman.h>
@@ -168,6 +169,15 @@ static void sel4_p(const char *tag, io_connect_t c, int which, size_t isz, const
 
 
 /* ---- v36 helpers ---- */
+#ifndef MACH_RCV_MSG_V
+#define MACH_RCV_MSG_V 0x02
+#endif
+#ifndef MACH_RCV_TIMEOUT_V
+#define MACH_RCV_TIMEOUT_V 0x100
+#endif
+#ifndef MACH_RCV_SUCCESS
+#define MACH_RCV_SUCCESS 0x00000000
+#endif
 #ifndef MACH_MSGS_RCV_TIMED_OUT
 #define MACH_MSGS_RCV_TIMED_OUT 0x100
 #endif
