@@ -224,6 +224,37 @@ int main(void) {
             destroy_close(c);
         }
         printf("=== lrbscan done ===\n");
+    } else if (test != NULL && strcmp(test, "statesweep") == 0) {
+        /* v27: after configure success, walk sel5/6/7/8/9/10 to map the encoder state machine */
+        const char *patch = getenv("AVE2_MS_PATCH");
+        int m = getenv("AVE2_CREATE_MODE") ? atoi(getenv("AVE2_CREATE_MODE")) : 1;
+        printf("=== statesweep mode %d: create->sel4->sel5/6/7/8/9/10 ===\n", m);
+        if (create_session(m, &c) != 0) { printf("[-] create\n"); return 42; }
+        fill_cfg(0, 1920, 1080, 2, 1, 0, 0);
+        sel4_p("st", c, 0, 0x1a0a0, patch);
+        { uint8_t d5[0x1a0b0]; memset(d5,0,sizeof(d5)); memcpy(d5,"904.76.7",8);
+          *(int32_t *)(d5 + AVE2_OFF_WIDTH) = 1920; *(int32_t *)(d5 + AVE2_OFF_HEIGHT) = 1080;
+          *(int32_t *)(d5 + AVE2_OFF_ENCTYPE) = 1; *(int32_t *)(d5 + AVE2_OFF_SLICES) = 1;
+          uint8_t o5[0x150]; size_t o5z = 0x150; memset(o5, 0xAA, sizeof(o5));
+          kern_return_t k5 = p_IOConnectCallStructMethod(c, 5, d5, sizeof(d5), o5, &o5z);
+          printf("    sel5 -> 0x%08x osz=%zu out0:", k5, o5z);
+          for (size_t q = 0; q < 16 && q < o5z; q++) printf("%02x", o5[q]);
+          printf("\n"); }
+        { uint8_t d6[0x30]; memset(d6,0,sizeof(d6)); memcpy(d6,"904.76.7",8);
+          uint8_t o6[0x20]; size_t o6z = 0x20; memset(o6, 0xAA, sizeof(o6));
+          kern_return_t k6 = p_IOConnectCallStructMethod(c, 6, d6, sizeof(d6), o6, &o6z);
+          printf("    sel6 -> 0x%08x osz=%zu out0:", k6, o6z);
+          for (size_t q = 0; q < 16 && q < o6z; q++) printf("%02x", o6[q]);
+          printf("\n"); }
+        for (int sel = 7; sel <= 10; sel++) {
+            uint8_t d7[0x30]; memset(d7,0,sizeof(d7)); memcpy(d7,"904.76.7",8);
+            *(int32_t *)(d7 + 0x08) = 1;
+            uint8_t o7[0x20]; size_t o7z = 0x20; memset(o7, 0xAA, sizeof(o7));
+            kern_return_t k7 = p_IOConnectCallStructMethod(c, sel, d7, sizeof(d7), o7, &o7z);
+            printf("    sel%d -> 0x%08x osz=%zu out0:", sel, k7, o7z);
+            for (size_t q = 0; q < 16 && q < o7z; q++) printf("%02x", o7[q]);
+            printf("\n"); }
+        destroy_close(c);
     } else {
         /* default battery: enctype sweep + no-create ladder */
         printf("\n=== S1 create m1: enctype sweep (static) ===\n");
