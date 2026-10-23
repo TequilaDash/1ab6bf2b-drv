@@ -353,7 +353,12 @@ int main(void) {
             *(uint32_t *)(d5 + 0x28) = 1;
             uint8_t o5[0x150]; size_t o5z = 0x150; memset(o5, 0xAA, sizeof(o5));
             kern_return_t k5 = p_IOConnectCallStructMethod(c, 5, d5, sizeof(d5), o5, &o5z);
-            if (k4 != 0 || (k5 != 0xe0000001u && k5 != 0xe00002d9u)) {
+            if (getenv("AVE2_LADDER")) {
+                if (k4 == 0 && k5 != 0xe00002d9u && k5 != 0xe0000001u) {
+                    printf("[LADDER] o=0x%x sel4=0x%08x sel5=0x%08x\n", o, k4, k5);
+                    hits++;
+                }
+            } else if (k4 != 0 || (k5 != 0xe0000001u && k5 != 0xe00002d9u)) {
                 printf("[HIT] o=0x%x sel4=0x%08x sel5=0x%08x\n", o, k4, k5);
                 hits++;
                 if (getenv("AVE2_SCAN_ALL")) continue;
