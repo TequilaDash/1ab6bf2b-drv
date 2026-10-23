@@ -618,6 +618,40 @@ int main(void) {
         }
         printf("=== s5v done ===\n");
         destroy_close(c);
+    } else if (test != NULL && strcmp(test, "s5c") == 0) {
+        /* v40: sweep CREATE input offsets: patch one u32=V, then sel3->sel4->sel5, watch sel5 code.
+           -1015 判据 = [codec+0x78] == [session+0x3de0]; 会话侧字段多半在 create 时初始化，
+           而 sel4/sel5 输入的单字段扫（s5scan/LADDER）已证明无关。 */
+        const char *patch = getenv("AVE2_MS_PATCH");
+        unsigned lo = getenv("AVE2_S5C_LO") ? (unsigned)strtoul(getenv("AVE2_S5C_LO"),NULL,0) : 0x20;
+        unsigned hi = getenv("AVE2_S5C_HI") ? (unsigned)strtoul(getenv("AVE2_S5C_HI"),NULL,0) : 0x6f0;
+        int vmax = getenv("AVE2_S5C_VMAX") ? atoi(getenv("AVE2_S5C_VMAX")) : 3;
+        printf("=== s5c: create-in sweep 0x%x..0x%x vmax=%d ===\n", lo, hi, vmax);
+        for (unsigned o = lo; o <= hi; o += 4) {
+            for (int V = 1; V <= vmax; V++) {
+                char spec[64]; snprintf(spec, sizeof(spec), "0x%lx:%d", o, V);
+                setenv("AVE2_CPATCH", spec, 1);
+                if (create_session(1, &c) != 0) continue;
+                { uint8_t din[0x40]; memset(din,0,sizeof(din)); memcpy(din,"904.76.7",8);
+                  iodyn_async_ref_t aref; memset(aref,0,sizeof(aref)); aref[0]=1;
+                  memset(out,0xAA,sizeof(out)); size_t o2=0x20;
+                  p_IOConnectCallAsyncStructMethod(c,3,wake,aref,8,din,0x38,out,&o2); }
+                drain_wake(wake, 50);
+                fill_cfg(0,1920,1080,2,1,0,0);
+                sel4_p("st", c, 0, 0x1a0a0, patch);
+                { uint8_t d5[0x1a0b0]; memset(d5,0,sizeof(d5)); memcpy(d5,stat_in,0x1a0a0);
+                  uint8_t o5[0x150]; size_t o5z=0x150; memset(o5,0xAA,sizeof(o5));
+                  kern_return_t k5 = p_IOConnectCallStructMethod(c,5,d5,sizeof(d5),o5,&o5z);
+                  if (k5 != 0xe0000001u) {
+                      printf("    [HIT create+0x%x=%d] sel5 -> 0x%08x %s osz=%zu out0:", o, V, k5, krname(k5), o5z);
+                      for (size_t q=0;q<16&&q<o5z;q++) printf("%02x", o5[q]);
+                      printf("\n");
+                  } }
+                destroy_close(c);
+            }
+        }
+        unsetenv("AVE2_CPATCH");
+        printf("=== s5c done ===\n");
     } else {
         /* default battery: enctype sweep + no-create ladder */
         printf("\n=== S1 create m1: enctype sweep (static) ===\n");
