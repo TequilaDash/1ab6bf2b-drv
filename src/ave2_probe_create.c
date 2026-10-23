@@ -241,6 +241,7 @@ int main(void) {
     kern_return_t kr;
 
     const char *test = getenv("AVE2_TEST");
+    printf("[mode] %s\n", test != NULL ? test : "battery");
     if (test != NULL && strcmp(test, "generic") == 0) {
         /* generic single/multi config crawler */
         int mode   = getenv("AVE2_CREATE_MODE") ? atoi(getenv("AVE2_CREATE_MODE")) : 1;
@@ -263,65 +264,6 @@ int main(void) {
             printf("--- rep %d ---\n", i);
             if (no_create) {
                 if (p_IOServiceOpen(svc, mach_task_self(), g_opentype, &c) != 0) { printf("[-] open\n"); break; }
-    } else if (test != NULL && strcmp(test, "surf") == 0) {
-        /* v44: iUCInfoSID = IOSurface ID hypothesis.
-           -1015 判据 = [driver_elem+0x28] == [session+0x3de0]; Start 输入 +0x28 = iUCInfoSID (>0).
-           造一个真 IOSurface 拿全局 ID，然后 (a) sel5+0x28 := SID; (b) create 输入逐 offset := SID。 */
-        {
-            typedef void *(*iosurf_create_fn)(void *, size_t, size_t *);
-            typedef uint32_t (*iosurf_id_fn)(void *);
-            iosurf_create_fn isc = (iosurf_create_fn)dlsym(RTLD_DEFAULT, "IOSurfaceCreate");
-            iosurf_id_fn isg = (iosurf_id_fn)dlsym(RTLD_DEFAULT, "IOSurfaceGetID");
-            uint32_t SID = 0;
-            if (isc != NULL && isg != NULL) {
-                size_t bpr = 0;
-                void *surf = isc(NULL, 4096, &bpr);
-                if (surf != NULL) { SID = isg(surf); printf("    [surf] IOSurface id=%u (0x%x) bpr=%zu\n", SID, SID, bpr); }
-                else printf("    [surf] IOSurfaceCreate returned NULL\n");
-            } else printf("    [surf] dlsym IOSurface failed\n");
-            const char *ms = getenv("AVE2_MS_PATCH");
-            if (SID != 0) {
-                /* (a) sel5 +0x28 := SID only */
-                printf("=== surf(a): sel5+0x28 := %u ===\n", SID);
-                if (create_session(1, &c) == 0) {
-                    { uint8_t din[0x40]; memset(din,0,sizeof(din)); memcpy(din,"904.76.7",8);
-                      iodyn_async_ref_t aref; memset(aref,0,sizeof(aref)); aref[0]=1;
-                      memset(out,0xAA,sizeof(out)); size_t o2=0x20;
-                      p_IOConnectCallAsyncStructMethod(c,3,wake,aref,8,din,0x38,out,&o2); }
-                    drain_wake(wake, 50);
-                    fill_cfg(0,1920,1080,2,1,0,0);
-                    sel4_p("st", c, 0, 0x1a0a0, ms);
-                    { uint8_t d5[0x1a0b0]; memset(d5,0,sizeof(d5)); memcpy(d5,stat_in,0x1a0a0);
-                      *(uint32_t *)(d5 + 0x28) = SID;
-                      uint8_t o5[0x150]; size_t o5z=0x150; memset(o5,0xAA,sizeof(o5));
-                      kern_return_t k5 = p_IOConnectCallStructMethod(c,5,d5,sizeof(d5),o5,&o5z);
-                      printf("    sel5 -> 0x%08x %s osz=%zu\n", k5, krname(k5), o5z); }
-                    destroy_close(c);
-                }
-                /* (b) sweep create-in offsets := SID */
-                printf("=== surf(b): create-in sweep := %u ===\n", SID);
-                for (unsigned o = 0x20; o <= 0x6f0; o += 4) {
-                    char spec[64]; snprintf(spec, sizeof(spec), "0x%lx:%u", o, SID);
-                    setenv("AVE2_CPATCH", spec, 1);
-                    if (create_session(1, &c) != 0) continue;
-                    { uint8_t din[0x40]; memset(din,0,sizeof(din)); memcpy(din,"904.76.7",8);
-                      iodyn_async_ref_t aref; memset(aref,0,sizeof(aref)); aref[0]=1;
-                      memset(out,0xAA,sizeof(out)); size_t o2=0x20;
-                      p_IOConnectCallAsyncStructMethod(c,3,wake,aref,8,din,0x38,out,&o2); }
-                    drain_wake(wake, 50);
-                    fill_cfg(0,1920,1080,2,1,0,0);
-                    sel4_p("st", c, 0, 0x1a0a0, ms);
-                    { uint8_t d5[0x1a0b0]; memset(d5,0,sizeof(d5)); memcpy(d5,stat_in,0x1a0a0);
-                      *(uint32_t *)(d5 + 0x28) = SID;
-                      uint8_t o5[0x150]; size_t o5z=0x150; memset(o5,0xAA,sizeof(o5));
-                      kern_return_t k5 = p_IOConnectCallStructMethod(c,5,d5,sizeof(d5),o5,&o5z);
-                      if (k5 != 0xe0000001u) printf("    [HIT create+0x%x=%u] sel5 -> 0x%08x %s\n", o, SID, k5, krname(k5)); }
-                    destroy_close(c);
-                }
-                unsetenv("AVE2_CPATCH");
-            }
-            printf("=== surf done ===\n");
-        }
             } else {
                 if (create_session(mode, &c) != 0) break;
             }
@@ -817,6 +759,65 @@ int main(void) {
         }
         unsetenv("AVE2_CPATCH");
         printf("=== sid2 done ===\n");
+    } else if (test != NULL && strcmp(test, "surf") == 0) {
+        /* v44: iUCInfoSID = IOSurface ID hypothesis.
+           -1015 判据 = [driver_elem+0x28] == [session+0x3de0]; Start 输入 +0x28 = iUCInfoSID (>0).
+           造一个真 IOSurface 拿全局 ID，然后 (a) sel5+0x28 := SID; (b) create 输入逐 offset := SID。 */
+        {
+            typedef void *(*iosurf_create_fn)(void *, size_t, size_t *);
+            typedef uint32_t (*iosurf_id_fn)(void *);
+            iosurf_create_fn isc = (iosurf_create_fn)dlsym(RTLD_DEFAULT, "IOSurfaceCreate");
+            iosurf_id_fn isg = (iosurf_id_fn)dlsym(RTLD_DEFAULT, "IOSurfaceGetID");
+            uint32_t SID = 0;
+            if (isc != NULL && isg != NULL) {
+                size_t bpr = 0;
+                void *surf = isc(NULL, 4096, &bpr);
+                if (surf != NULL) { SID = isg(surf); printf("    [surf] IOSurface id=%u (0x%x) bpr=%zu\n", SID, SID, bpr); }
+                else printf("    [surf] IOSurfaceCreate returned NULL\n");
+            } else printf("    [surf] dlsym IOSurface failed\n");
+            const char *ms = getenv("AVE2_MS_PATCH");
+            if (SID != 0) {
+                /* (a) sel5 +0x28 := SID only */
+                printf("=== surf(a): sel5+0x28 := %u ===\n", SID);
+                if (create_session(1, &c) == 0) {
+                    { uint8_t din[0x40]; memset(din,0,sizeof(din)); memcpy(din,"904.76.7",8);
+                      iodyn_async_ref_t aref; memset(aref,0,sizeof(aref)); aref[0]=1;
+                      memset(out,0xAA,sizeof(out)); size_t o2=0x20;
+                      p_IOConnectCallAsyncStructMethod(c,3,wake,aref,8,din,0x38,out,&o2); }
+                    drain_wake(wake, 50);
+                    fill_cfg(0,1920,1080,2,1,0,0);
+                    sel4_p("st", c, 0, 0x1a0a0, ms);
+                    { uint8_t d5[0x1a0b0]; memset(d5,0,sizeof(d5)); memcpy(d5,stat_in,0x1a0a0);
+                      *(uint32_t *)(d5 + 0x28) = SID;
+                      uint8_t o5[0x150]; size_t o5z=0x150; memset(o5,0xAA,sizeof(o5));
+                      kern_return_t k5 = p_IOConnectCallStructMethod(c,5,d5,sizeof(d5),o5,&o5z);
+                      printf("    sel5 -> 0x%08x %s osz=%zu\n", k5, krname(k5), o5z); }
+                    destroy_close(c);
+                }
+                /* (b) sweep create-in offsets := SID */
+                printf("=== surf(b): create-in sweep := %u ===\n", SID);
+                for (unsigned o = 0x20; o <= 0x6f0; o += 4) {
+                    char spec[64]; snprintf(spec, sizeof(spec), "0x%lx:%u", o, SID);
+                    setenv("AVE2_CPATCH", spec, 1);
+                    if (create_session(1, &c) != 0) continue;
+                    { uint8_t din[0x40]; memset(din,0,sizeof(din)); memcpy(din,"904.76.7",8);
+                      iodyn_async_ref_t aref; memset(aref,0,sizeof(aref)); aref[0]=1;
+                      memset(out,0xAA,sizeof(out)); size_t o2=0x20;
+                      p_IOConnectCallAsyncStructMethod(c,3,wake,aref,8,din,0x38,out,&o2); }
+                    drain_wake(wake, 50);
+                    fill_cfg(0,1920,1080,2,1,0,0);
+                    sel4_p("st", c, 0, 0x1a0a0, ms);
+                    { uint8_t d5[0x1a0b0]; memset(d5,0,sizeof(d5)); memcpy(d5,stat_in,0x1a0a0);
+                      *(uint32_t *)(d5 + 0x28) = SID;
+                      uint8_t o5[0x150]; size_t o5z=0x150; memset(o5,0xAA,sizeof(o5));
+                      kern_return_t k5 = p_IOConnectCallStructMethod(c,5,d5,sizeof(d5),o5,&o5z);
+                      if (k5 != 0xe0000001u) printf("    [HIT create+0x%x=%u] sel5 -> 0x%08x %s\n", o, SID, k5, krname(k5)); }
+                    destroy_close(c);
+                }
+                unsetenv("AVE2_CPATCH");
+            }
+            printf("=== surf done ===\n");
+        }
     } else {
         /* default battery: enctype sweep + no-create ladder */
         printf("\n=== S1 create m1: enctype sweep (static) ===\n");

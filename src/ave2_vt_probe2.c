@@ -59,6 +59,7 @@
 #include <errno.h>
 #include <sys/stat.h>
 #include <mach/mach.h>
+#include <pthread.h>
 
 #import <Foundation/Foundation.h>
 #import <AVFoundation/AVFoundation.h>
@@ -557,6 +558,171 @@ static int run_aw_phase(BOOL require_hw)
 }
 
 /* ------------------------------------------------------------------ */
+/* phase 3: in-process scan for the genuine driver request structs      */
+/*                                                                     */
+/* The genuine AVE2 client lives in another process (videocodecd), so   */
+/* the IOConnect interposer above never fires inside our process.      */
+/* But if Apple's client code (MediaToolbox) builds the driver's       */
+/* request structures *in this process* and ships them over XPC, the   */
+/* raw bytes are still in our own address space.  So we walk every      */
+/* readable region with mach_vm_region()/mach_vm_read() and look for    */
+/* two signatures:                                                     */
+/*   (A) create    : 0x7088980A at +0x18 of a 0x6f0 block             */
+/*   (B) configure : W@+0xD90 / H@+0xD94 of a 0x1a0a0 block            */
+/* ------------------------------------------------------------------ */
+#define VM_REGION_BASIC_INFO_64_AVE2 12
+
+typedef struct {
+    vm_prot_t    protection;
+    vm_prot_t    max_protection;
+    vm_prot_t    inert_protection;
+    vm_offset_t  offset;
+    unsigned int user_wired_count;
+    unsigned int user_tag;
+    unsigned int pages_resident;
+    unsigned int pages_shared_now_private;
+    unsigned int pages_swapped_out;
+    unsigned int pages_dirtied;
+    unsigned int ref_count;
+    unsigned int shadow_depth;
+    unsigned char external_pager;
+    unsigned char share_mode;
+    unsigned int pages_reusable;
+} ave2_vm_basic_info_64;
+
+extern kern_return_t mach_vm_region(vm_address_t target, vm_address_t *address,
+                                     vm_size_t *size, vm_region_flavor_t flavor,
+                                     vm_region_info_t data,
+                                     mach_msg_type_number_t *count,
+                                     mach_port_t *object_name);
+extern kern_return_t mach_vm_read(vm_address_t target, vm_address_t address,
+                                   vm_size_t size, void *data,
+                                   mach_msg_type_number_t *dataCnt);
+
+static volatile int g_scan_run  = 1;
+static int          g_scan_hits;
+static uint64_t     g_scan_bytes;
+
+static int ave2_peek32(vm_address_t a, uint32_t *out)
+{
+    mach_msg_type_number_t c = 4;
+    return mach_vm_read(mach_task_self(), a, 4, out, &c) == KERN_SUCCESS;
+}
+
+/* read len bytes at addr; on failure retry with shorter lengths */
+static void ave2_scan_save(const char *tag, vm_address_t addr, size_t len)
+{
+    unsigned char *buf = (unsigned char *)malloc(len);
+    if (!buf) return;
+
+    size_t got = 0;
+    for (size_t tryLen = len; tryLen >= 0x40; tryLen /= 2) {
+        mach_msg_type_number_t c = (mach_msg_type_number_t)tryLen;
+        if (mach_vm_read(mach_task_self(), addr, tryLen, buf, &c) == KERN_SUCCESS) {
+            got = c;
+            break;
+        }
+    }
+    if (!got) {
+        emitf("[scan] mach_vm_read failed for %s @0x%llx len=%zu\n",
+              tag, (unsigned long long)addr, len);
+        free(buf);
+        return;
+    }
+
+    char path[512];
+    snprintf(path, sizeof(path), "%s/scan_%s_%d.bin", AVE2_DUMP_DIR, tag, ++g_scan_hits);
+    int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (fd >= 0) {
+        ssize_t w = write(fd, buf, got);
+        (void)w;
+        close(fd);
+        emitf("[scan] HIT %s addr=0x%llx len=%zu -> %s\n",
+              tag, (unsigned long long)addr, got, path);
+    } else {
+        emitf("[scan] open %s failed: %s\n", path, strerror(errno));
+    }
+    free(buf);
+}
+
+static void ave2_scan_region(vm_address_t base, size_t size, const unsigned char *buf)
+{
+    /* (A) create structure: magic 0x7088980A at +0x18 */
+    for (size_t i = 0x18; i + 4 <= size; i += 4) {
+        uint32_t v = 0;
+        memcpy(&v, buf + i, 4);
+        if (v != 0x7088980AU) continue;
+        vm_address_t addr = base + (i - 0x18);
+        emitf("[scan] create magic @0x%llx\n", (unsigned long long)addr);
+        ave2_scan_save("create", addr, 0x6f0);
+    }
+
+    /* (B) configure structure: W@+0xD90, H@+0xD94 */
+    for (size_t i = 0; i + 8 <= size; i += 4) {
+        uint32_t w = 0, h = 0;
+        memcpy(&w, buf + i, 4);
+        if (w != (uint32_t)AVE2_W) continue;
+        memcpy(&h, buf + i + 4, 4);
+        if (h != (uint32_t)AVE2_H) continue;
+        if (i < 0xD90) continue;
+
+        vm_address_t addr = base + (i - 0xD90);
+        uint32_t nl = 0xffffffffu, nv = 0xffffffffu, sl = 0xffffffffu;
+        if (!ave2_peek32(addr + 0x312C, &nl)) continue;
+        if (!ave2_peek32(addr + 0x3130, &nv)) continue;
+        if (!ave2_peek32(addr + 0x2FFC, &sl)) continue;
+        if (nl > 16 || nv > 16 || sl > 256) continue;
+
+        emitf("[scan] configure candidate @0x%llx layers=%u views=%u slices=%u\n",
+              (unsigned long long)addr, nl, nv, sl);
+        ave2_scan_save("cfg", addr, 0x1a0a0);
+    }
+}
+
+static void ave2_scan_all(void)
+{
+    vm_address_t addr = 0;
+    for (;;) {
+        vm_size_t size = 0;
+        ave2_vm_basic_info_64 info;
+        memset(&info, 0, sizeof(info));
+        mach_msg_type_number_t cnt =
+            (mach_msg_type_number_t)(sizeof(info) / sizeof(natural_t));
+        kern_return_t kr = mach_vm_region(mach_task_self(), &addr, &size,
+                                          VM_REGION_BASIC_INFO_64_AVE2,
+                                          (vm_region_info_t)&info, &cnt, NULL);
+        if (kr != KERN_SUCCESS || size == 0) break;
+
+        vm_address_t regionBase = addr;
+        if ((info.protection & VM_PROT_READ) && size > 0) {
+            vm_size_t chunk = size;
+            if (chunk > 32u * 1024u * 1024u) chunk = 32u * 1024u * 1024u;
+            unsigned char *buf = (unsigned char *)malloc(chunk);
+            if (buf) {
+                mach_msg_type_number_t got = (mach_msg_type_number_t)chunk;
+                if (mach_vm_read(mach_task_self(), regionBase, chunk, buf, &got)
+                    == KERN_SUCCESS) {
+                    ave2_scan_region(regionBase, got, buf);
+                    g_scan_bytes += got;
+                }
+                free(buf);
+            }
+        }
+        addr = regionBase + size;
+    }
+}
+
+static void *ave2_scan_thread(void *arg)
+{
+    (void)arg;
+    for (int round = 0; round < 60 && g_scan_run; round++) {
+        ave2_scan_all();
+        usleep(200000);
+    }
+    return NULL;
+}
+
+/* ------------------------------------------------------------------ */
 int main(void)
 {
     setvbuf(stdout, NULL, _IONBF, 0);
@@ -567,6 +733,10 @@ int main(void)
     emitf("[probe] dump dir   = %s\n", AVE2_DUMP_DIR);
     emitf("[probe] manifest   = %s\n", AVE2_MANIFEST);
 
+    pthread_t scanTid;
+    int haveScan = (pthread_create(&scanTid, NULL, ave2_scan_thread, NULL) == 0);
+    if (!haveScan) emitf("[scan] thread start failed\n");
+
     run_diag_phase();
     run_vt_phase();
 
@@ -575,6 +745,11 @@ int main(void)
         emitf("[aw] retrying without hardware requirement\n");
         run_aw_phase(NO);
     }
+
+    g_scan_run = 0;
+    if (haveScan) pthread_join(scanTid, NULL);
+    ave2_scan_all();
+    emitf("[scan] hits=%d bytes=%llu\n", g_scan_hits, (unsigned long long)g_scan_bytes);
 
     emitf("[probe] dumps written = %d\n", g_ndumped);
     emitf("[probe] manifest: %s\n", AVE2_MANIFEST);
