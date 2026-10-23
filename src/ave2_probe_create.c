@@ -199,20 +199,20 @@ static void drain_wake(mach_port_t p, int ms) {
 /* shared state walk: sel5..sel10 after a successful configure */
 static void state_walk(io_connect_t c) {
     { uint8_t d5[0x1a0b0]; memset(d5,0,sizeof(d5)); memcpy(d5,stat_in,0x1a0a0);
-      *(uint32_t *)(d5 + 0x28) = 1;   /* verifier 0x1b98f14 requires in+0x28 != 0 */
+      { const char *ix = getenv("AVE2_S5_IDX28"); if (ix && atoi(ix)) *(uint32_t *)(d5 + 0x28) = 1; }  /* v38: keep "904.76.7" at in+0x28 (validator memcmp) */
       uint8_t o5[0x150]; size_t o5z = 0x150; memset(o5, 0xAA, sizeof(o5));
       kern_return_t k5 = p_IOConnectCallStructMethod(c, 5, d5, sizeof(d5), o5, &o5z);
       printf("    sel5 -> 0x%08x %s osz=%zu out0:", k5, krname(k5), o5z);
       for (size_t q = 0; q < 16 && q < o5z; q++) printf("%02x", o5[q]);
       printf("\n"); }
-    { uint8_t d6[0x30]; memset(d6,0,sizeof(d6)); memcpy(d6,stat_in,0x30); *(uint32_t *)(d6+0x28)=1;
+    { uint8_t d6[0x30]; memset(d6,0,sizeof(d6)); memcpy(d6,stat_in,0x30); { const char *ix = getenv("AVE2_S5_IDX28"); if (ix && atoi(ix)) *(uint32_t *)(d6+0x28)=1; }
       uint8_t o6[0x20]; size_t o6z = 0x20; memset(o6, 0xAA, sizeof(o6));
       kern_return_t k6 = p_IOConnectCallStructMethod(c, 6, d6, sizeof(d6), o6, &o6z);
       printf("    sel6 -> 0x%08x %s osz=%zu out0:", k6, krname(k6), o6z);
       for (size_t q = 0; q < 16 && q < o6z; q++) printf("%02x", o6[q]);
       printf("\n"); }
     for (int sel = 7; sel <= 10; sel++) {
-        uint8_t d7[0x30]; memset(d7,0,sizeof(d7)); memcpy(d7,stat_in,0x30); *(uint32_t *)(d7+0x28)=1;
+        uint8_t d7[0x30]; memset(d7,0,sizeof(d7)); memcpy(d7,stat_in,0x30); { const char *ix = getenv("AVE2_S5_IDX28"); if (ix && atoi(ix)) *(uint32_t *)(d7+0x28)=1; }
         *(int32_t *)(d7 + 0x08) = 1;
         uint8_t o7[0x20]; size_t o7z = 0x20; memset(o7, 0xAA, sizeof(o7));
         kern_return_t k7 = p_IOConnectCallStructMethod(c, sel, d7, sizeof(d7), o7, &o7z);
