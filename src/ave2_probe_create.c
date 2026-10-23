@@ -50,6 +50,7 @@ static uint8_t  anon_in[0x1a0c0];
 static uint8_t  in[0x6f0];
 static uint8_t  out[0x400];
 static uint64_t counter = 0x0000700000004005ULL;
+static void apply_patch(uint8_t *buf, const char *spec); /* fwd: used by create_session */
 static io_service_t svc;
 
 static kern_return_t create_session(int mode, io_connect_t *conn) {
