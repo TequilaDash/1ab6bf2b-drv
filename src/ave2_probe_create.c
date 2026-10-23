@@ -93,17 +93,6 @@ static void fill_cfg(int which, int w, int h, int p6, int enctype, int slices, i
     *(int32_t *)(buf + AVE2_MODE5_OFF_P7)  = p7;
 }
 
-/* v22 gate variants: gsel 0 = P6 gate (min 0x38), 1 = P7 gate (min 0x28) */
-static void sel4(const char *tag, io_connect_t c, int which, size_t isz, int gsel) {
-    uint8_t *buf = which == 0 ? stat_in : anon_in;
-    if (gsel) *(int32_t *)(buf + AVE2_MODE5_OFF_P7) = 4;
-    else      *(int32_t *)(buf + AVE2_MODE5_OFF_P6) = 2;
-    memset(out, 0xAA, sizeof(out));
-    size_t o = 0x20;
-    kern_return_t kr = p_IOConnectCallStructMethod(c, 4, buf, isz, out, &o);
-    printf("    [%s] sel4 -> 0x%08x %s\n", tag, kr, krname(kr));
-    dump_out(out, o, 0x20);
-}
 
 static void sel3_async(io_connect_t c, mach_port_t wake) {
     uint8_t din[0x40];
@@ -115,6 +104,36 @@ static void sel3_async(io_connect_t c, mach_port_t wake) {
     size_t o = 0x20;
     kern_return_t kr = p_IOConnectCallAsyncStructMethod(c, 3, wake, aref, 8, din, 0x38, out, &o);
     printf("    sel3 async -> 0x%08x\n", kr);
+}
+
+/* ---- v24 generic field-patch infra (env-driven, no assumptions) ---- */
+
+/* AVE2_PATCH="0x3204:2;0x2f64:3" -> write u32 LE at each offset */
+static void apply_patch(uint8_t *buf, const char *spec) {
+    if (spec == NULL || !spec[0]) return;
+    char tmp[4096];
+    snprintf(tmp, sizeof(tmp), "%s", spec);
+    char *save = NULL;
+    for (char *tok = strtok_r(tmp, ";,", &save); tok; tok = strtok_r(NULL, ";,", &save)) {
+        char *colon = strchr(tok, ':');
+        if (!colon) { printf("    [patch] bad token %s\n", tok); continue; }
+        *colon = 0;
+        unsigned long off = strtoul(tok, NULL, 0);
+        uint32_t val = (uint32_t)strtoul(colon + 1, NULL, 0);
+        if (off + 4 > 0x1a0a0) { printf("    [patch] off %lx OOR\n", off); continue; }
+        *(uint32_t *)(buf + off) = val;
+        printf("    [patch] +0x%lx = 0x%08x\n", off, val);
+    }
+}
+
+static void sel4_p(const char *tag, io_connect_t c, int which, size_t isz, const char *patch) {
+    uint8_t *buf = which == 0 ? stat_in : anon_in;
+    apply_patch(buf, patch);
+    memset(out, 0xAA, sizeof(out));
+    size_t o = 0x20;
+    kern_return_t kr = p_IOConnectCallStructMethod(c, 4, buf, isz, out, &o);
+    printf("    [%s] sel4 -> 0x%08x %s\n", tag, kr, krname(kr));
+    dump_out(out, o, 0x20);
 }
 
 int main(void) {
@@ -134,48 +153,57 @@ int main(void) {
     io_connect_t c;
     kern_return_t kr;
 
-    printf("\n=== S1 create m1: enctype sweep (static) ===\n");
-    if (create_session(1, &c) == 0) {
-        fill_cfg(0, 1920, 1080, 2, 1, 0, 0); sel4("e1/full", c, 0, 0x1a0a0, 0);
-        fill_cfg(0, 1920, 1080, 2, 0, 0, 0); sel4("e0/full", c, 0, 0x1a0a0, 0);
-        fill_cfg(0, 1920, 1080, 2, 2, 0, 0); sel4("e2/full", c, 0, 0x1a0a0, 0);
-        destroy_close(c);
-    }
-
-    printf("\n=== S1 create m1: enctype sweep (static) ===\n");
-    if (create_session(1, &c) == 0) {
-        fill_cfg(0, 1920, 1080, 2, 1, 0, 0); sel4("enctype1/static/1920", c, 0, 0x1a0a0, 0);
-        fill_cfg(0, 1920, 1080, 2, 0, 0, 0); sel4("enctype0/static/1920", c, 0, 0x1a0a0, 0);
-        fill_cfg(0, 1920, 1080, 2, 2, 0, 0); sel4("enctype2/static/1920", c, 0, 0x1a0a0, 0);
-        destroy_close(c);
-    }
-
-    printf("\n=== S5 no create: gate ladder ===\n");
-    if (p_IOServiceOpen(svc, mach_task_self(), 1, &c) == 0) {
-        fill_cfg(0, 1920, 1080, 2, 0, 0, 0); sel4("S5/P6e0", c, 0, 0x38, 0);
-        fill_cfg(0, 1920, 1080, 2, 0, 0, 0); sel4("S5/P7e0", c, 0, 0x28, 1);
-        fill_cfg(0, 1920, 1080, 2, 1, 0, 0); sel4("S5/P6e1", c, 0, 0x38, 0);
-        fill_cfg(0, 1920, 1080, 2, 1, 0, 0); sel4("S5/P7e1", c, 0, 0x28, 1);
-        p_IOServiceClose(c);
-    }
-
-    printf("\n=== S4 create m1 + sel3 async: gate ladder (v22) ===\n");
-    if (create_session(1, &c) == 0) {
-        sel3_async(c, wake);
-        fill_cfg(0, 1920, 1080, 2, 0, 0, 0); sel4("P6/e0", c, 0, 0x38, 0);
-        fill_cfg(0, 1920, 1080, 2, 0, 0, 0); sel4("P7/e0", c, 0, 0x28, 1);
-        fill_cfg(0, 1920, 1080, 2, 1, 0, 0); sel4("P6/e1", c, 0, 0x38, 0);
-        fill_cfg(0, 1920, 1080, 2, 1, 0, 0); sel4("P7/e1", c, 0, 0x28, 1);
-        destroy_close(c);
-    }
-
-    printf("\n=== T: no-create ladder tail ===\n");
-    if (p_IOServiceOpen(svc, mach_task_self(), 1, &c) == 0) {
-        fill_cfg(0, 1920, 1080, 2, 0, 0, 0); sel4("T/P6e0", c, 0, 0x38, 0);
-        fill_cfg(0, 1920, 1080, 2, 0, 0, 0); sel4("T/P7e0", c, 0, 0x28, 1);
-        fill_cfg(0, 1920, 1080, 2, 1, 0, 0); sel4("T/P6e1", c, 0, 0x38, 0);
-        fill_cfg(0, 1920, 1080, 2, 1, 0, 0); sel4("T/P7e1", c, 0, 0x28, 1);
-        p_IOServiceClose(c);
+    const char *test = getenv("AVE2_TEST");
+    if (test != NULL && strcmp(test, "generic") == 0) {
+        /* generic single/multi config crawler */
+        int mode   = getenv("AVE2_CREATE_MODE") ? atoi(getenv("AVE2_CREATE_MODE")) : 1;
+        int no_create = getenv("AVE2_NO_CREATE") ? atoi(getenv("AVE2_NO_CREATE")) : 0;
+        int use_sel3  = getenv("AVE2_SEL3") ? atoi(getenv("AVE2_SEL3")) : 0;
+        int w      = getenv("AVE2_W")  ? atoi(getenv("AVE2_W"))  : 1920;
+        int h      = getenv("AVE2_H")  ? atoi(getenv("AVE2_H"))  : 1080;
+        int p6     = getenv("AVE2_P6") ? atoi(getenv("AVE2_P6")) : 2;
+        int p8     = getenv("AVE2_P8") ? atoi(getenv("AVE2_P8")) : 10;
+        int slices = getenv("AVE2_SLICES") ? atoi(getenv("AVE2_SLICES")) : 0;
+        int p7     = getenv("AVE2_P7") ? atoi(getenv("AVE2_P7")) : 0;
+        int enc    = getenv("AVE2_ENC") ? atoi(getenv("AVE2_ENC")) : 1;
+        int which  = getenv("AVE2_ANON") ? atoi(getenv("AVE2_ANON")) : 0;
+        size_t isz = getenv("AVE2_SELSZ") ? (size_t)strtoul(getenv("AVE2_SELSZ"), NULL, 0) : 0x1a0a0;
+        int repeat = getenv("AVE2_REPEAT") ? atoi(getenv("AVE2_REPEAT")) : 1;
+        const char *patch = getenv("AVE2_PATCH");
+        printf("=== generic w=%d h=%d p6=%d p8=%d sl=%d p7=%d enc=%d isz=0x%zx rep=%d ===\n",
+               w, h, p6, p8, slices, p7, enc, isz, repeat);
+        for (int i = 0; i < repeat; i++) {
+            printf("--- rep %d ---\n", i);
+            if (no_create) {
+                if (p_IOServiceOpen(svc, mach_task_self(), 1, &c) != 0) { printf("[-] open\n"); break; }
+            } else {
+                if (create_session(mode, &c) != 0) break;
+            }
+            if (use_sel3) sel3_async(c, wake);
+            fill_cfg(which, w, h, p6, enc, slices, p7);
+            char tag[64];
+            snprintf(tag, sizeof(tag), "g%d", i);
+            sel4_p(tag, c, which, isz, patch);
+            if (!no_create) destroy_close(c);
+            else p_IOServiceClose(c);
+        }
+    } else {
+        /* default battery: enctype sweep + no-create ladder */
+        printf("\n=== S1 create m1: enctype sweep (static) ===\n");
+        if (create_session(1, &c) == 0) {
+            fill_cfg(0, 1920, 1080, 2, 1, 0, 0); sel4_p("e1/full", c, 0, 0x1a0a0, NULL);
+            fill_cfg(0, 1920, 1080, 2, 0, 0, 0); sel4_p("e0/full", c, 0, 0x1a0a0, NULL);
+            fill_cfg(0, 1920, 1080, 2, 2, 0, 0); sel4_p("e2/full", c, 0, 0x1a0a0, NULL);
+            destroy_close(c);
+        }
+        printf("\n=== S5 no create: gate ladder ===\n");
+        if (p_IOServiceOpen(svc, mach_task_self(), 1, &c) == 0) {
+            fill_cfg(0, 1920, 1080, 2, 0, 0, 0); sel4_p("S5/P6e0", c, 0, 0x38, NULL);
+            fill_cfg(0, 1920, 1080, 2, 0, 0, 0); sel4_p("S5/P7e0", c, 0, 0x28, NULL);
+            fill_cfg(0, 1920, 1080, 2, 1, 0, 0); sel4_p("S5/P6e1", c, 0, 0x38, NULL);
+            fill_cfg(0, 1920, 1080, 2, 1, 0, 0); sel4_p("S5/P7e1", c, 0, 0x28, NULL);
+            p_IOServiceClose(c);
+        }
     }
 
     munmap(anon, sizeof(anon_in));
