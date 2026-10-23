@@ -1,19 +1,22 @@
 /*
- * ave2_probe_create.c v16 — in-band selector recon (no OOL)
+ * ave2_probe_create.c v17 — scalar-requirement hypothesis
  *
- * v15 proved sel4 bc is parameter-independent. All sel4/sel5 calls are OOL
- * (in > 0x1000 -> kernel trap builds a memory descriptor). The OOL object
- * path (prepare -> map) is opaque from the outside. sel6..sel10 take in=0x30
- * (in-band, raw structureInput) so they run the RAW path: gate -> checker ->
- * session call -> translate -> out WRITTEN (out+0x18 = raw AVE status).
- * Reading those raw AVE codes maps the session machine state directly.
+ * v16: sel3 requires args+0x8/+0x10/+0x18 non-NULL (SCALAR INPUTS) —
+ * IOConnectCallStructMethod sends none -> sel3 bc out untouched.
+ * sel6..sel10 -> d9 out untouched (unexplained). Hypothesis: some selectors
+ * require scalars; mixed IOConnectCallMethod(scalars+struct) supplies them.
  *
- * E1 sel6  with session      E2 sel5 sync with session (OOL, expect d9?)
- * E3 sel4 sync with session  (OOL, expect bc)
- * E4 sel6  NO session        (expect d9 + out+0x18 written = -1011 raw)
- * E5..E8 sel7/8/9/10 with session
- * E9  sel3 with session (0x38, in-band)
- * E10 destroy then sel6 (dead session)
+ * V1  sel2 CallMethod + 3 zero scalars          (control, expect 0)
+ * V2  sel6 CallStructMethod                     (control, expect d9)
+ * V3  sel6 CallMethod + 3 zero scalars
+ * V4  sel3 CallMethod + 3 zero scalars
+ * V5  sel3 CallMethod + scalars (1,2,3)
+ * V6  sel7..10 CallMethod + 3 zero scalars
+ * V7  sel4 CallStructMethod (control, expect bc)
+ * V8  sel4 CallMethod + 3 zero scalars (OOL struct)
+ * V9  sel4 CallMethod + scalars (1,2,3) (OOL)
+ * V10 sel5 CallMethod + 3 zero scalars (OOL)
+ * V11 SetNotificationPort types 0..3 (info)
  */
 
 #include <stdio.h>
@@ -33,19 +36,6 @@ static const char *krname(kern_return_t k) {
     case 0xe00002bcu:    return "0xbc";
     case 0xe00002d8u:    return "0xd8";
     case 0xe00002d9u:    return "0xd9";
-    case 0xe00002beu:    return "0xbe";
-    case 0xe00002bfu:    return "0xbf";
-    case 0xe00002c0u:    return "0xc0";
-    case 0xe00002cau:    return "0xca";
-    case 0xe00002dbu:    return "0xdb";
-    case 0xe00002e7u:    return "0xe7";
-    case 0xe00002e8u:    return "0xe8";
-    case 0xe00002e9u:    return "0xe9";
-    case 0xe00002edu:    return "0xed";
-    case 0xe00002f0u:    return "0xf0";
-    case 0xe00002d5u:    return "0xd5";
-    case 0xe00002d6u:    return "0xd6";
-    case 0xe0000001u:    return "0x01";
     default:             return "";
     }
 }
@@ -62,7 +52,7 @@ static void dump_out(const uint8_t *out, size_t osz, size_t n) {
 static uint8_t  cin[0x1a0c0];
 static uint8_t  in[0x6f0];
 static uint8_t  out[0x400];
-static uint64_t counter = 0x0000700000000D00ULL;
+static uint64_t counter = 0x0000700000000E00ULL;
 
 static kern_return_t create_session(io_service_t svc, io_connect_t *conn) {
     *conn = MACH_PORT_NULL;
@@ -83,16 +73,46 @@ static kern_return_t create_session(io_service_t svc, io_connect_t *conn) {
     return k1;
 }
 
-static kern_return_t call_inband(io_connect_t c, uint32_t sel, size_t isz, size_t osz) {
+static void destroy_close(io_connect_t c) {
+    uint8_t din[0x28] = {0}; size_t o = 0x20; memset(out, 0, sizeof(out));
+    kern_return_t kr = p_IOConnectCallStructMethod(c, 2, din, 0x28, out, &o);
+    printf("    destroy -> 0x%08x\n", kr);
+    p_IOServiceClose(c);
+}
+
+/* mixed call: nscalars + struct */
+static kern_return_t call_mixed(io_connect_t c, uint32_t sel, const uint64_t *sc,
+                                uint32_t nsc, size_t isz, size_t osz) {
+    uint8_t din[0x40];
+    memset(din, 0, sizeof(din));
+    memcpy(din, "904.76.7", 8);
+    memset(out, 0xAA, sizeof(out));
+    uint64_t so[8]; uint32_t soc = 0;
+    size_t o = osz;
+    kern_return_t kr = p_IOConnectCallMethod(c, sel, sc, nsc, din, isz, so, &soc, out, &o);
+    printf("    sel%u sc=%u -> 0x%08x %s soCnt=%u\n", sel, nsc, kr, krname(kr), soc);
+    dump_out(out, o, osz < 0x24 ? osz : 0x24);
+    return kr;
+}
+
+static kern_return_t call_struct(io_connect_t c, uint32_t sel, size_t isz, size_t osz) {
     uint8_t din[0x40];
     memset(din, 0, sizeof(din));
     memcpy(din, "904.76.7", 8);
     memset(out, 0xAA, sizeof(out));
     size_t o = osz;
     kern_return_t kr = p_IOConnectCallStructMethod(c, sel, din, isz, out, &o);
-    printf("    sel%u -> 0x%08x %s\n", sel, kr, krname(kr));
+    printf("    sel%u struct -> 0x%08x %s\n", sel, kr, krname(kr));
     dump_out(out, o, osz < 0x24 ? osz : 0x24);
     return kr;
+}
+
+static void fill_cfg(void) {
+    memset(cin, 0, sizeof(cin));
+    memcpy(cin + 0x00, "904.76.7", 8);
+    memcpy(cin + 0x28, "904.76.7", 8);
+    *(int32_t *)(cin + AVE2_OFF_WIDTH)  = 1920;
+    *(int32_t *)(cin + AVE2_OFF_HEIGHT) = 1080;
 }
 
 int main(void) {
@@ -104,72 +124,100 @@ int main(void) {
     const char *e = getenv("AVE2_LOGCNT");
     if (e != NULL && e[0]) counter = strtoull(e, NULL, 0);
     kern_return_t kr;
+    io_connect_t c;
 
-    printf("\n=== E1 sel6 with session ===\n");
-    { io_connect_t c; if (create_session(svc, &c) == 0) {
-        call_inband(c, 6, 0x30, 0x20);
-        uint8_t din[0x28] = {0}; size_t o = 0x20; memset(out, 0, sizeof(out));
-        kr = p_IOConnectCallStructMethod(c, 2, din, 0x28, out, &o);
-        printf("    destroy -> 0x%08x\n", kr);
-        p_IOServiceClose(c); } }
+    printf("\n=== V1 sel2 CallMethod + 3 zero scalars (control) ===\n");
+    if (create_session(svc, &c) == 0) {
+        uint64_t sc[3] = {0, 0, 0};
+        call_mixed(c, 2, sc, 3, 0x28, 0x20);
+        destroy_close(c);
+    }
 
-    printf("\n=== E2 sel5 sync with session (OOL 0x1a0b0/0x150) ===\n");
-    { io_connect_t c; if (create_session(svc, &c) == 0) {
-        memset(cin, 0, sizeof(cin));
-        memcpy(cin + 0x00, "904.76.7", 8); memcpy(cin + 0x28, "904.76.7", 8);
-        *(int32_t *)(cin + AVE2_OFF_WIDTH) = 1920; *(int32_t *)(cin + AVE2_OFF_HEIGHT) = 1080;
-        memset(out, 0xAA, sizeof(out)); size_t o = 0x150;
-        kr = p_IOConnectCallStructMethod(c, 5, cin, 0x1a0b0, out, &o);
-        printf("    sel5 -> 0x%08x %s\n", kr, krname(kr)); dump_out(out, o, 0x24);
-        uint8_t din[0x28] = {0}; o = 0x20; memset(out, 0, sizeof(out));
-        kr = p_IOConnectCallStructMethod(c, 2, din, 0x28, out, &o);
-        printf("    destroy -> 0x%08x\n", kr);
-        p_IOServiceClose(c); } }
+    printf("\n=== V2 sel6 CallStructMethod (control) ===\n");
+    if (create_session(svc, &c) == 0) {
+        call_struct(c, 6, 0x30, 0x20);
+        destroy_close(c);
+    }
 
-    printf("\n=== E3 sel4 sync with session (OOL 0x1a0a0/0x20) ===\n");
-    { io_connect_t c; if (create_session(svc, &c) == 0) {
-        memset(cin, 0, sizeof(cin));
-        memcpy(cin + 0x00, "904.76.7", 8); memcpy(cin + 0x28, "904.76.7", 8);
-        *(int32_t *)(cin + AVE2_OFF_WIDTH) = 1920; *(int32_t *)(cin + AVE2_OFF_HEIGHT) = 1080;
+    printf("\n=== V3 sel6 CallMethod + 3 zero scalars ===\n");
+    if (create_session(svc, &c) == 0) {
+        uint64_t sc[3] = {0, 0, 0};
+        call_mixed(c, 6, sc, 3, 0x30, 0x20);
+        destroy_close(c);
+    }
+
+    printf("\n=== V4 sel3 CallMethod + 3 zero scalars ===\n");
+    if (create_session(svc, &c) == 0) {
+        uint64_t sc[3] = {0, 0, 0};
+        call_mixed(c, 3, sc, 3, 0x38, 0x20);
+        destroy_close(c);
+    }
+
+    printf("\n=== V5 sel3 CallMethod + scalars(1,2,3) ===\n");
+    if (create_session(svc, &c) == 0) {
+        uint64_t sc[3] = {1, 2, 3};
+        call_mixed(c, 3, sc, 3, 0x38, 0x20);
+        destroy_close(c);
+    }
+
+    printf("\n=== V6 sel7..10 CallMethod + 3 zero scalars ===\n");
+    if (create_session(svc, &c) == 0) {
+        uint64_t sc[3] = {0, 0, 0};
+        call_mixed(c, 7, sc, 3, 0x30, 0x20);
+        call_mixed(c, 8, sc, 3, 0x30, 0x20);
+        call_mixed(c, 9, sc, 3, 0x30, 0x20);
+        call_mixed(c, 10, sc, 3, 0x30, 0x20);
+        destroy_close(c);
+    }
+
+    printf("\n=== V7 sel4 CallStructMethod (control) ===\n");
+    if (create_session(svc, &c) == 0) {
+        fill_cfg();
         memset(out, 0xAA, sizeof(out)); size_t o = 0x20;
         kr = p_IOConnectCallStructMethod(c, 4, cin, 0x1a0a0, out, &o);
         printf("    sel4 -> 0x%08x %s\n", kr, krname(kr)); dump_out(out, o, 0x24);
-        uint8_t din[0x28] = {0}; o = 0x20; memset(out, 0, sizeof(out));
-        kr = p_IOConnectCallStructMethod(c, 2, din, 0x28, out, &o);
-        printf("    destroy -> 0x%08x\n", kr);
-        p_IOServiceClose(c); } }
+        destroy_close(c);
+    }
 
-    printf("\n=== E4 sel6 NO session ===\n");
-    { io_connect_t c = MACH_PORT_NULL;
-      kr = p_IOServiceOpen(svc, mach_task_self(), 1, &c);
-      if (kr == 0) { call_inband(c, 6, 0x30, 0x20); p_IOServiceClose(c); } }
+    printf("\n=== V8 sel4 CallMethod + 3 zero scalars (OOL) ===\n");
+    if (create_session(svc, &c) == 0) {
+        fill_cfg();
+        uint64_t sc[3] = {0, 0, 0};
+        memset(out, 0xAA, sizeof(out)); size_t o = 0x20;
+        kr = p_IOConnectCallMethod(c, 4, sc, 3, cin, 0x1a0a0, NULL, NULL, out, &o);
+        printf("    sel4 -> 0x%08x %s\n", kr, krname(kr)); dump_out(out, o, 0x24);
+        destroy_close(c);
+    }
 
-    printf("\n=== E5-E8 sel7..sel10 with session ===\n");
-    { io_connect_t c; if (create_session(svc, &c) == 0) {
-        call_inband(c, 7, 0x30, 0x20);
-        call_inband(c, 8, 0x30, 0x20);
-        call_inband(c, 9, 0x30, 0x20);
-        call_inband(c, 10, 0x30, 0x20);
-        uint8_t din[0x28] = {0}; size_t o = 0x20; memset(out, 0, sizeof(out));
-        kr = p_IOConnectCallStructMethod(c, 2, din, 0x28, out, &o);
-        printf("    destroy -> 0x%08x\n", kr);
-        p_IOServiceClose(c); } }
+    printf("\n=== V9 sel4 CallMethod + scalars(1,2,3) (OOL) ===\n");
+    if (create_session(svc, &c) == 0) {
+        fill_cfg();
+        uint64_t sc[3] = {1, 2, 3};
+        memset(out, 0xAA, sizeof(out)); size_t o = 0x20;
+        kr = p_IOConnectCallMethod(c, 4, sc, 3, cin, 0x1a0a0, NULL, NULL, out, &o);
+        printf("    sel4 -> 0x%08x %s\n", kr, krname(kr)); dump_out(out, o, 0x24);
+        destroy_close(c);
+    }
 
-    printf("\n=== E9 sel3 with session ===\n");
-    { io_connect_t c; if (create_session(svc, &c) == 0) {
-        call_inband(c, 3, 0x38, 0x20);
-        uint8_t din[0x28] = {0}; size_t o = 0x20; memset(out, 0, sizeof(out));
-        kr = p_IOConnectCallStructMethod(c, 2, din, 0x28, out, &o);
-        printf("    destroy -> 0x%08x\n", kr);
-        p_IOServiceClose(c); } }
+    printf("\n=== V10 sel5 CallMethod + 3 zero scalars (OOL 0x1a0b0) ===\n");
+    if (create_session(svc, &c) == 0) {
+        fill_cfg();
+        uint64_t sc[3] = {0, 0, 0};
+        memset(out, 0xAA, sizeof(out)); size_t o = 0x150;
+        kr = p_IOConnectCallMethod(c, 5, sc, 3, cin, 0x1a0b0, NULL, NULL, out, &o);
+        printf("    sel5 -> 0x%08x %s\n", kr, krname(kr)); dump_out(out, o, 0x24);
+        destroy_close(c);
+    }
 
-    printf("\n=== E10 destroy then sel6 (dead session) ===\n");
-    { io_connect_t c; if (create_session(svc, &c) == 0) {
-        uint8_t din[0x28] = {0}; size_t o = 0x20; memset(out, 0, sizeof(out));
-        kr = p_IOConnectCallStructMethod(c, 2, din, 0x28, out, &o);
-        printf("    destroy -> 0x%08x\n", kr);
-        call_inband(c, 6, 0x30, 0x20);
-        p_IOServiceClose(c); } }
+    printf("\n=== V11 SetNotificationPort types 0..3 ===\n");
+    if (create_session(svc, &c) == 0) {
+        mach_port_t wake = mach_task_self();
+        for (uint32_t t = 0; t < 4; t++) {
+            kr = p_IOConnectSetNotificationPort(c, t, wake);
+            printf("    SetNotificationPort(type=%u) -> 0x%08x %s\n", t, kr, krname(kr));
+        }
+        destroy_close(c);
+    }
 
     p_IOObjectRelease(svc);
     return 42;

@@ -49,6 +49,11 @@ typedef kern_return_t (*fp_IOConnectCallAsyncStructMethod)(io_connect_t, uint32_
                                                           void *, size_t *);
 typedef kern_return_t (*fp_IOConnectSetNotificationPort)(io_connect_t, uint32_t,
                                                         mach_port_t);
+typedef kern_return_t (*fp_IOConnectCallMethod)(io_connect_t, uint32_t,
+                                                const uint64_t *, uint32_t,
+                                                const void *, size_t,
+                                                uint64_t *, uint32_t *,
+                                                void *, size_t *);
 typedef kern_return_t (*fp_IOConnectCallScalarMethod)(io_connect_t, uint32_t,
                                                       const uint64_t *, uint32_t,
                                                       uint64_t *, uint32_t *);
@@ -65,6 +70,7 @@ static fp_IOServiceClose                 p_IOServiceClose;
 static fp_IOObjectRelease                p_IOObjectRelease;
 static fp_IOConnectCallStructMethod      p_IOConnectCallStructMethod;
 static fp_IOConnectCallAsyncStructMethod p_IOConnectCallAsyncStructMethod;
+static fp_IOConnectCallMethod            p_IOConnectCallMethod;
 static fp_IOConnectCallScalarMethod      p_IOConnectCallScalarMethod;
 static fp_IOConnectCallAsyncScalarMethod p_IOConnectCallAsyncScalarMethod;
 static fp_IOConnectSetNotificationPort p_IOConnectSetNotificationPort;
@@ -83,6 +89,7 @@ static int iodyn_init(void) {
     p_IOObjectRelease                = (fp_IOObjectRelease)dlsym(iodyn_handle, "IOObjectRelease");
     p_IOConnectCallStructMethod      = (fp_IOConnectCallStructMethod)dlsym(iodyn_handle, "IOConnectCallStructMethod");
     p_IOConnectCallAsyncStructMethod = (fp_IOConnectCallAsyncStructMethod)dlsym(iodyn_handle, "IOConnectCallAsyncStructMethod");
+    p_IOConnectCallMethod            = (fp_IOConnectCallMethod)dlsym(iodyn_handle, "IOConnectCallMethod");
     p_IOConnectCallScalarMethod      = (fp_IOConnectCallScalarMethod)dlsym(iodyn_handle, "IOConnectCallScalarMethod");
     p_IOConnectCallAsyncScalarMethod = (fp_IOConnectCallAsyncScalarMethod)dlsym(iodyn_handle, "IOConnectCallAsyncScalarMethod");
     p_IOConnectSetNotificationPort  = (fp_IOConnectSetNotificationPort)dlsym(iodyn_handle, "IOConnectSetNotificationPort");
@@ -92,6 +99,7 @@ static int iodyn_init(void) {
         return -2;
     }
     /* scalar methods are optional (probe-only) */
+    if (!p_IOConnectCallMethod) p_IOConnectCallMethod = NULL;
     if (!p_IOConnectCallScalarMethod) p_IOConnectCallScalarMethod = NULL;
     if (!p_IOConnectCallAsyncScalarMethod) p_IOConnectCallAsyncScalarMethod = NULL;
     return 0;
