@@ -726,7 +726,7 @@ int main(void) {
                   if (k5 != 0xe0000001u) printf("    [HIT sid=0x%08x sw=%d] sel5 -> 0x%08x %s\n", x, sw, k5, krname(k5));
               }
           }
-          printf("    candidate scan done\n"); } }
+          printf("    candidate scan done\n"); }
         destroy_close(c);
         printf("=== sid done ===\n");
     } else if (test != NULL && strcmp(test, "sid2") == 0) {
