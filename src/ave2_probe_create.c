@@ -19,6 +19,7 @@
 #include <string.h>
 #include <stdint.h>
 #include <mach/mach.h>
+#include <unistd.h>
 #include <sys/mman.h>
 #include "iokit_dyn.h"
 #include "ave2_wire.h"
@@ -291,6 +292,21 @@ int main(void) {
             case 7: *(uint32_t *)(d5 + 0x28) = 1; *(uint32_t *)(d5 + 0x1a0a8) = 0;
                     *(int32_t *)(d5 + AVE2_OFF_WIDTH) = 4096;
                     *(int32_t *)(d5 + AVE2_OFF_HEIGHT) = 2160; break;
+            }
+            { /* v30: firmware async command drain — sleep + optional sel4 re-fire before sel5 */
+              const char *dl = getenv("AVE2_S5DELAY");
+              const char *rn = getenv("AVE2_S5RESEL4");
+              int ms = dl ? atoi(dl) : 0;
+              int re = rn ? atoi(rn) : 0;
+              if (ms > 0) usleep(ms * 1000);
+              for (int r = 0; r < re; r++) {
+                  uint8_t d4[0x1a0a0]; memset(d4,0,sizeof(d4)); memcpy(d4,stat_in,0x1a0a0);
+                  const char *mp3 = patch; if (mp3) apply_patch(d4, mp3);
+                  uint8_t o4[0x20]; size_t o4z=0x20; memset(o4,0xAA,sizeof(o4));
+                  kern_return_t k4 = p_IOConnectCallStructMethod(c, 4, d4, sizeof(d4), o4, &o4z);
+                  if (ms > 0) usleep(ms * 1000);
+                  printf("    [refire %d] sel4 -> 0x%08x\n", r, k4);
+              }
             }
             uint8_t o5[0x150]; size_t o5z = 0x150; memset(o5, 0xAA, sizeof(o5));
             kern_return_t k5 = p_IOConnectCallStructMethod(c, 5, d5, sizeof(d5), o5, &o5z);
