@@ -652,6 +652,49 @@ int main(void) {
         }
         unsetenv("AVE2_CPATCH");
         printf("=== s5c done ===\n");
+    } else if (test != NULL && strcmp(test, "s4s") == 0) {
+        /* v41: sweep CONFIGURE (sel4) input offsets; fresh session every N points.
+           -1015 判据 = [P+0x78] == [session+0x3de0]。会话侧字段最可能来自 configure 输入；
+           v34d 的 LADDER 判据把 -1015 排除在外（那时还没 sel3），结论无效，本模式重做。 */
+        const char *ms = getenv("AVE2_MS_PATCH");
+        unsigned lo = getenv("AVE2_S4S_LO") ? (unsigned)strtoul(getenv("AVE2_S4S_LO"),NULL,0) : 0x28;
+        unsigned hi = getenv("AVE2_S4S_HI") ? (unsigned)strtoul(getenv("AVE2_S4S_HI"),NULL,0) : 0x1a0a0;
+        int step = getenv("AVE2_S4S_STEP") ? atoi(getenv("AVE2_S4S_STEP")) : 16;
+        int vmax = getenv("AVE2_S4S_VMAX") ? atoi(getenv("AVE2_S4S_VMAX")) : 1;
+        int re = getenv("AVE2_S4S_RECREATE") ? atoi(getenv("AVE2_S4S_RECREATE")) : 4;
+        printf("=== s4s: configure-in sweep 0x%x..0x%x step=%d vmax=%d recreate=%d ===\n", lo, hi, step, vmax, re);
+        int since = 0;
+        for (unsigned o = lo; o <= hi; o += step) {
+            for (int V = 1; V <= vmax; V++) {
+                if (since >= re) {
+                    if (c) destroy_close(c);
+                    since = 0;
+                }
+                if (since == 0) {
+                    if (create_session(1, &c) != 0) { since = 0; continue; }
+                    { uint8_t din[0x40]; memset(din,0,sizeof(din)); memcpy(din,"904.76.7",8);
+                      iodyn_async_ref_t aref; memset(aref,0,sizeof(aref)); aref[0]=1;
+                      memset(out,0xAA,sizeof(out)); size_t o2=0x20;
+                      p_IOConnectCallAsyncStructMethod(c,3,wake,aref,8,din,0x38,out,&o2); }
+                    drain_wake(wake, 50);
+                    since = 1;
+                }
+                fill_cfg(0,1920,1080,2,1,0,0);
+                apply_patch_quiet(stat_in, ms);
+                { char spec[64]; snprintf(spec, sizeof(spec), "0x%lx:%d", o, V);
+                  apply_patch_quiet(stat_in, spec); }
+                { uint8_t o4[0x20]; size_t o4z=0x20; memset(o4,0xAA,sizeof(o4));
+                  kern_return_t k4 = p_IOConnectCallStructMethod(c,4,stat_in,0x1a0a0,o4,&o4z);
+                  uint8_t d5[0x1a0b0]; memset(d5,0,sizeof(d5)); memcpy(d5,stat_in,0x1a0a0);
+                  uint8_t o5[0x150]; size_t o5z=0x150; memset(o5,0xAA,sizeof(o5));
+                  kern_return_t k5 = p_IOConnectCallStructMethod(c,5,d5,sizeof(d5),o5,&o5z);
+                  if (k5 != 0xe0000001u || k4 != 0) {
+                      printf("    [HIT cfg+0x%x=%d] sel4=0x%08x sel5=0x%08x %s\n", o, V, k4, k5, krname(k5));
+                  } }
+            }
+        }
+        if (c) destroy_close(c);
+        printf("=== s4s done ===\n");
     } else {
         /* default battery: enctype sweep + no-create ladder */
         printf("\n=== S1 create m1: enctype sweep (static) ===\n");
