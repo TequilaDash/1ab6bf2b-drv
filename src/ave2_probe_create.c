@@ -255,6 +255,48 @@ int main(void) {
             for (size_t q = 0; q < 16 && q < o7z; q++) printf("%02x", o7[q]);
             printf("\n"); }
         destroy_close(c);
+    } else if (test != NULL && strcmp(test, "start5") == 0) {
+        /* v28: sel5 UCStart matrix. kext verifier 0x1b98f14 requires:
+           0x1b98084 s64 nonneg (in+0x10/+0x18/+0x20), [in+0x28] u32 != 0,
+           [in+0x1A0A8] u32 nonneg. Then Configure(state==1) deep chain runs. */
+        const char *patch = getenv("AVE2_MS_PATCH");
+        int m = getenv("AVE2_CREATE_MODE") ? atoi(getenv("AVE2_CREATE_MODE")) : 1;
+        printf("=== start5: create m%d -> sel4 -> sel5 matrix ===\n", m);
+        for (int casei = 0; casei < 8; casei++) {
+            printf("--- s5 case %d ---\n", casei);
+            if (create_session(m, &c) != 0) { printf("[-] create\n"); break; }
+            fill_cfg(0, 1920, 1080, 2, 1, 0, 0);
+            sel4_p("s5pre", c, 0, 0x1a0a0, patch);
+            uint8_t d5[0x1a0b0]; memset(d5, 0, sizeof(d5));
+            memcpy(d5, stat_in, 0x1a0a0);
+            switch (casei) {
+            case 0: *(uint32_t *)(d5 + 0x28) = 1; *(uint32_t *)(d5 + 0x1a0a8) = 0; break;
+            case 1: *(uint32_t *)(d5 + 0x28) = 0; break; /* expect early reject */
+            case 2: *(uint32_t *)(d5 + 0x28) = 1; *(uint32_t *)(d5 + 0x1a0a8) = 1; break;
+            case 3: *(uint32_t *)(d5 + 0x28) = 0x40; break;
+            case 4: *(uint32_t *)(d5 + 0x28) = 1; *(uint32_t *)(d5 + 0x1a0a8) = 0;
+                    *(int32_t *)(d5 + 0x1a0a0) = 1; break;
+            case 5: *(uint32_t *)(d5 + 0x28) = 1; *(uint32_t *)(d5 + 0x1a0a8) = 0;
+                    *(int32_t *)(d5 + 0x1a0a4) = 1; break;
+            case 6: *(uint32_t *)(d5 + 0x28) = 1; *(uint32_t *)(d5 + 0x1a0a8) = 0;
+                    *(int32_t *)(d5 + AVE2_OFF_ENCTYPE) = 2; break;
+            case 7: *(uint32_t *)(d5 + 0x28) = 1; *(uint32_t *)(d5 + 0x1a0a8) = 0;
+                    *(int32_t *)(d5 + AVE2_OFF_WIDTH) = 4096;
+                    *(int32_t *)(d5 + AVE2_OFF_HEIGHT) = 2160; break;
+            }
+            uint8_t o5[0x150]; size_t o5z = 0x150; memset(o5, 0xAA, sizeof(o5));
+            kern_return_t k5 = p_IOConnectCallStructMethod(c, 5, d5, sizeof(d5), o5, &o5z);
+            printf("    [s5-%d] sel5 -> 0x%08x osz=%zu out0:", casei, k5, o5z);
+            for (size_t q = 0; q < 16 && q < o5z; q++) printf("%02x", o5[q]);
+            printf("\n");
+            sel4_p("s5post", c, 0, 0x1a0a0, NULL);
+            { uint8_t d6[0x30]; memset(d6,0,sizeof(d6)); memcpy(d6,"904.76.7",8);
+              uint8_t o6[0x20]; size_t o6z=0x20; memset(o6,0xAA,sizeof(o6));
+              kern_return_t k6 = p_IOConnectCallStructMethod(c, 6, d6, 0x30, o6, &o6z);
+              printf("    [s5-%d] sel6 -> 0x%08x\n", casei, k6); }
+            destroy_close(c);
+        }
+        printf("=== start5 done ===\n");
     } else {
         /* default battery: enctype sweep + no-create ladder */
         printf("\n=== S1 create m1: enctype sweep (static) ===\n");
