@@ -136,9 +136,9 @@ int main(void) {
 
     printf("\n=== S1 create m1: enctype sweep (static) ===\n");
     if (create_session(1, &c) == 0) {
-        fill_cfg(0, 1920, 1080, 2, 1, 0, 0); sel4("enctype1/static/1920", c, 0, 0x1a0a0);
-        fill_cfg(0, 1920, 1080, 2, 0, 0, 0); sel4("enctype0/static/1920", c, 0, 0x1a0a0);
-        fill_cfg(0, 1920, 1080, 2, 2, 0, 0); sel4("enctype2/static/1920", c, 0, 0x1a0a0);
+        fill_cfg(0, 1920, 1080, 2, 1, 0, 0); sel4("enctype1/static/1920", c, 0, 0x1a0a0, 0);
+        fill_cfg(0, 1920, 1080, 2, 0, 0, 0); sel4("enctype0/static/1920", c, 0, 0x1a0a0, 0);
+        fill_cfg(0, 1920, 1080, 2, 2, 0, 0); sel4("enctype2/static/1920", c, 0, 0x1a0a0, 0);
         destroy_close(c);
     }
 
