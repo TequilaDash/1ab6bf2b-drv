@@ -19,6 +19,7 @@
 #include <string.h>
 #include <stdint.h>
 #include <mach/mach.h>
+#include <mach/mach_time.h>
 #include <unistd.h>
 #include <sys/mman.h>
 #include "iokit_dyn.h"
