@@ -44,6 +44,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <VideoToolbox/VideoToolbox.h>
+#include <dlfcn.h>
 #include <CoreMedia/CoreMedia.h>
 #include <CoreVideo/CoreVideo.h>
 
@@ -219,9 +220,8 @@ end_session:
         st = VTCompressionSessionCompleteFrames(session, kCMTimeInvalid);
         printf("[vt] VTCompressionSessionCompleteFrames -> %d (%s)\n",
                (int)st, st == 0 ? "noErr" : "FAIL");
-        st = VTCompressionSessionEndCompressionSession(session);
-        printf("[vt] VTCompressionSessionEndCompressionSession -> %d (%s)\n",
-               (int)st, st == 0 ? "noErr" : "FAIL");
+        VTCompressionSessionInvalidate(session);
+        printf("[vt] VTCompressionSessionInvalidate done\n");
         ended = 1;
     }
     printf("[vt] output callback fired = %u times, last_status = %d, "
@@ -233,8 +233,8 @@ end_session:
 run_log:
     /* ---- 5) unified log dump + first 100 lines ---- */
     printf("[log] cmd: %s\n", kLogShowCmd);
-    int src = system(kLogShowCmd);
-    printf("[log] system() -> %d\n", src);
+        int (*sys_fn)(const char *) = (int (*)(const char *))dlsym(RTLD_DEFAULT, "system");
+        int src = sys_fn ? sys_fn(kLogShowCmd) : -1;
     FILE *f = fopen(VT_LOG_PATH, "r");
     if (!f) {
         printf("[log] fopen(%s) failed\n", VT_LOG_PATH);
