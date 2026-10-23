@@ -345,6 +345,69 @@ int main(void) {
         sel4_p("st", c, 0, 0x1a0a0, patch);
         state_walk(c);
         destroy_close(c);
+    } else if (test != NULL && strcmp(test, "s5scan") == 0) {
+        /* v37: sel5 input single-offset scan WITH sel3 async in front.
+           Baseline (clean configure patch) => sel5 = 0xe0000001 (-1015).
+           Any offset whose value change moves sel5 is a hit. */
+        const char *patch = getenv("AVE2_MS_PATCH");
+        int lo  = getenv("AVE2_SCAN_LO") ? (int)strtoul(getenv("AVE2_SCAN_LO"),0,0) : 0x28;
+        int hi  = getenv("AVE2_SCAN_HI") ? (int)strtoul(getenv("AVE2_SCAN_HI"),0,0) : 0x400;
+        uint32_t pv = getenv("AVE2_SCAN_VAL") ? (uint32_t)strtoul(getenv("AVE2_SCAN_VAL"),0,0) : 1;
+        int hits = 0;
+        printf("=== s5scan lo=0x%x hi=0x%x val=0x%x (sel5 baseline 0xe0000001) ===\n", lo, hi, pv);
+        for (int o = lo; o + 4 <= hi; o += 4) {
+            if (create_session(1, &c) != 0) { printf("[-] create at o=0x%x\n", o); break; }
+            sel3_async(c, wake);
+            fill_cfg(0, 1920, 1080, 2, 1, 0, 0);
+            { uint8_t d4[0x1a0a0]; memset(d4,0,sizeof(d4)); memcpy(d4,stat_in,0x1a0a0);
+              if (patch) apply_patch_quiet(d4, patch);
+              uint8_t o4[0x20]; size_t o4z = 0x20; memset(o4, 0xAA, sizeof(o4));
+              kern_return_t k4 = p_IOConnectCallStructMethod(c, 4, d4, sizeof(d4), o4, &o4z);
+              uint8_t d5[0x1a0b0]; memset(d5,0,sizeof(d5)); memcpy(d5,stat_in,0x1a0a0);
+              *(uint32_t *)(d5 + 0x28) = 1;
+              *(uint32_t *)(d5 + o) = pv;
+              uint8_t o5[0x150]; size_t o5z = 0x150; memset(o5, 0xAA, sizeof(o5));
+              kern_return_t k5 = p_IOConnectCallStructMethod(c, 5, d5, sizeof(d5), o5, &o5z);
+              if (k5 != 0xe0000001u) {
+                printf("[HIT] o=0x%x sel4=0x%08x sel5=0x%08x %s out0:%02x%02x%02x%02x\n",
+                       o, k4, k5, krname(k5), o5[0], o5[1], o5[2], o5[3]);
+                hits++;
+              } }
+            destroy_close(c);
+        }
+        printf("=== s5scan done hits=%d ===\n", hits);
+    } else if (test != NULL && strcmp(test, "s5var") == 0) {
+        /* v37: try several sel5 input shapes, one fresh session each */
+        const char *patch = getenv("AVE2_MS_PATCH");
+        int hits = 0;
+        for (int shape = 0; shape < 8; shape++) {
+            printf("--- s5var shape %d ---\n", shape);
+            if (create_session(1, &c) != 0) { printf("[-] create\n"); break; }
+            sel3_async(c, wake);
+            fill_cfg(0, 1920, 1080, 2, 1, 0, 0);
+            { uint8_t d4[0x1a0a0]; memset(d4,0,sizeof(d4)); memcpy(d4,stat_in,0x1a0a0);
+              if (patch) apply_patch_quiet(d4, patch);
+              uint8_t o4[0x20]; size_t o4z = 0x20; memset(o4, 0xAA, sizeof(o4));
+              kern_return_t k4 = p_IOConnectCallStructMethod(c, 4, d4, sizeof(d4), o4, &o4z);
+              uint8_t d5[0x1a0b0]; memset(d5,0,sizeof(d5));
+              switch (shape) {
+              case 0: memcpy(d5,stat_in,0x1a0a0); *(uint32_t *)(d5 + 0x28) = 1; break;
+              case 1: memcpy(d5,"904.76.7",8); memcpy(d5+0x28,"904.76.7",8); *(uint32_t *)(d5 + 0x28) = 1; break;
+              case 2: memcpy(d5,stat_in,0x1a0a0); *(uint32_t *)(d5 + 0x28) = 1; *(int64_t *)(d5+0x10)=1; *(int64_t *)(d5+0x18)=1; *(int64_t *)(d5+0x20)=1; break;
+              case 3: memcpy(d5,stat_in,0x1a0a0); *(uint32_t *)(d5 + 0x28) = 1; *(uint32_t *)(d5 + 0x1a0a8) = 1; break;
+              case 4: memcpy(d5,stat_in,0x1a0a0); *(uint32_t *)(d5 + 0x28) = 1; *(uint32_t *)(d5 + 0xd90) = 1920; *(uint32_t *)(d5 + 0xd94) = 1080; break;
+              case 5: memcpy(d5,stat_in,0x1a0a0); *(uint32_t *)(d5 + 0x28) = 1; *(int32_t *)(d5 + 0x2ffc) = 1; *(int32_t *)(d5 + 0x3130) = 2; *(int32_t *)(d5 + 0x312c) = 2; break;
+              case 6: memcpy(d5,stat_in,0x1a0a0); *(uint32_t *)(d5 + 0x28) = 1; *(uint32_t *)(d5 + 0x228) = 0x40; *(uint32_t *)(d5 + 0x248) = 0x40; *(uint32_t *)(d5 + 0x268) = 0x40; break;
+              default: memcpy(d5,stat_in,0x1a0a0); *(uint32_t *)(d5 + 0x28) = 1; *(uint32_t *)(d5 + 0x1a0a4) = 1; break;
+              }
+              uint8_t o5[0x150]; size_t o5z = 0x150; memset(o5, 0xAA, sizeof(o5));
+              kern_return_t k5 = p_IOConnectCallStructMethod(c, 5, d5, sizeof(d5), o5, &o5z);
+              printf("    shape %d sel4=0x%08x sel5=0x%08x %s out0:%02x%02x%02x%02x\n", shape, k4, k5, krname(k5), o5[0], o5[1], o5[2], o5[3]);
+              if (k5 != 0xe0000001u) hits++;
+            }
+            destroy_close(c);
+        }
+        printf("=== s5var done moved=%d ===\n", hits);
     } else if (test != NULL && strcmp(test, "s2reg") == 0) {
         /* v31: real-client sequence = create -> sel2(session register) -> sel4 -> sel5.
            media-toolbox report section4: sel2 in 0x28: +0x00 cookie(this[0]), +0x08/+0x10=0,
