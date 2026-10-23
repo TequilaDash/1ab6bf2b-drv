@@ -85,6 +85,7 @@ static kern_return_t create_session(int mode, io_connect_t *conn) {
     memset(out, 0, sizeof(out));
     kern_return_t k1 = p_IOConnectCallStructMethod(*conn, 1, in, AVE2_IOS_CREATE_IN_SIZE, out, &osz);
     printf("    create m%d -> 0x%08x\n", mode, k1);
+    if (k1 == 0) { printf("    create out:"); for (int q=0;q<8;q++) printf(" %08x", *(uint32_t*)(out+4*q)); printf("\n"); }
     return k1;
 }
 
@@ -695,6 +696,67 @@ int main(void) {
         }
         if (c) destroy_close(c);
         printf("=== s4s done ===\n");
+    } else if (test != NULL && strcmp(test, "sid") == 0) {
+        /* v42: dump create/sel3 outs and try every u32 seen there as sel5 iUCInfoSID (+0x28). */
+        const char *ms = getenv("AVE2_MS_PATCH");
+        printf("=== sid: dump outs + try candidate SIDs ===\n");
+        if (create_session(1, &c) != 0) { printf("[-] create\n"); return 42; }
+        { uint32_t co[8]; memcpy(co, out, 32);
+          printf("    create u32:"); for (int q=0;q<8;q++) printf(" %08x", co[q]); printf("\n");
+          { uint8_t din[0x40]; memset(din,0,sizeof(din)); memcpy(din,"904.76.7",8);
+            iodyn_async_ref_t aref; memset(aref,0,sizeof(aref)); aref[0]=1;
+            memset(out,0xAA,sizeof(out)); size_t o2=0x20;
+            p_IOConnectCallAsyncStructMethod(c,3,wake,aref,8,din,0x38,out,&o2); }
+          drain_wake(wake, 200);
+          uint32_t so[8]; memcpy(so, out, 32);
+          printf("    sel3  u32:"); for (int q=0;q<8;q++) printf(" %08x", so[q]); printf("\n");
+          fill_cfg(0,1920,1080,2,1,0,0);
+          sel4_p("st", c, 0, 0x1a0a0, ms);
+          uint32_t cand[32]; int nc = 0;
+          for (int q=0;q<8;q++) cand[nc++]=co[q];
+          for (int q=0;q<8;q++) cand[nc++]=so[q];
+          for (int q=0;q<nc;q++) {
+              uint32_t v = cand[q];
+              for (int sw=0; sw<2; sw++) {
+                  uint32_t x = sw ? __builtin_bswap32(v) : v;
+                  uint8_t d5[0x1a0b0]; memset(d5,0,sizeof(d5)); memcpy(d5,stat_in,0x1a0a0);
+                  *(uint32_t *)(d5 + 0x28) = x;
+                  uint8_t o5[0x150]; size_t o5z=0x150; memset(o5,0xAA,sizeof(o5));
+                  kern_return_t k5 = p_IOConnectCallStructMethod(c,5,d5,sizeof(d5),o5,&o5z);
+                  if (k5 != 0xe0000001u) printf("    [HIT sid=0x%08x sw=%d] sel5 -> 0x%08x %s\n", x, sw, k5, krname(k5));
+              }
+          }
+          printf("    candidate scan done\n"); } }
+        destroy_close(c);
+        printf("=== sid done ===\n");
+    } else if (test != NULL && strcmp(test, "sid2") == 0) {
+        /* v42: linked sweep: create-in field coff := V AND sel5-in field soff := V (same V).
+           假设 Start 的 iUCInfoSID(+0x28) 必须等于 create 时登记的 UC info id。 */
+        const char *ms = getenv("AVE2_MS_PATCH");
+        unsigned coff = getenv("AVE2_SID2_COFF") ? (unsigned)strtoul(getenv("AVE2_SID2_COFF"),NULL,0) : 0x10;
+        unsigned soff = getenv("AVE2_SID2_SOFF") ? (unsigned)strtoul(getenv("AVE2_SID2_SOFF"),NULL,0) : 0x28;
+        unsigned vmax = getenv("AVE2_SID2_VMAX") ? (unsigned)strtoul(getenv("AVE2_SID2_VMAX"),NULL,0) : 0x400;
+        printf("=== sid2: create+0x%x := V, sel5+0x%x := V, V=1..0x%x ===\n", coff, soff, vmax);
+        for (unsigned V = 1; V <= vmax; V++) {
+            char spec[64]; snprintf(spec, sizeof(spec), "0x%lx:%u", coff, V);
+            setenv("AVE2_CPATCH", spec, 1);
+            if (create_session(1, &c) != 0) continue;
+            { uint8_t din[0x40]; memset(din,0,sizeof(din)); memcpy(din,"904.76.7",8);
+              iodyn_async_ref_t aref; memset(aref,0,sizeof(aref)); aref[0]=1;
+              memset(out,0xAA,sizeof(out)); size_t o2=0x20;
+              p_IOConnectCallAsyncStructMethod(c,3,wake,aref,8,din,0x38,out,&o2); }
+            drain_wake(wake, 50);
+            fill_cfg(0,1920,1080,2,1,0,0);
+            sel4_p("st", c, 0, 0x1a0a0, ms);
+            { uint8_t d5[0x1a0b0]; memset(d5,0,sizeof(d5)); memcpy(d5,stat_in,0x1a0a0);
+              if (soff + 4 <= sizeof(d5)) *(uint32_t *)(d5 + soff) = V;
+              uint8_t o5[0x150]; size_t o5z=0x150; memset(o5,0xAA,sizeof(o5));
+              kern_return_t k5 = p_IOConnectCallStructMethod(c,5,d5,sizeof(d5),o5,&o5z);
+              if (k5 != 0xe0000001u) printf("    [HIT V=0x%x] sel5 -> 0x%08x %s\n", V, k5, krname(k5)); }
+            destroy_close(c);
+        }
+        unsetenv("AVE2_CPATCH");
+        printf("=== sid2 done ===\n");
     } else {
         /* default battery: enctype sweep + no-create ladder */
         printf("\n=== S1 create m1: enctype sweep (static) ===\n");
