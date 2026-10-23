@@ -49,7 +49,7 @@ static uint8_t  stat_in[0x1a0c0];
 static uint8_t  anon_in[0x1a0c0];
 static uint8_t  in[0x6f0];
 static uint8_t  out[0x400];
-static uint64_t counter = 0x0000700000004000ULL;
+static uint64_t counter = 0x0000700000004005ULL;
 static io_service_t svc;
 
 static kern_return_t create_session(int mode, io_connect_t *conn) {
@@ -136,10 +136,27 @@ int main(void) {
 
     printf("\n=== S1 create m1: enctype sweep (static) ===\n");
     if (create_session(1, &c) == 0) {
+        fill_cfg(0, 1920, 1080, 2, 1, 0, 0); sel4("e1/full", c, 0, 0x1a0a0, 0);
+        fill_cfg(0, 1920, 1080, 2, 0, 0, 0); sel4("e0/full", c, 0, 0x1a0a0, 0);
+        fill_cfg(0, 1920, 1080, 2, 2, 0, 0); sel4("e2/full", c, 0, 0x1a0a0, 0);
+        destroy_close(c);
+    }
+
+    printf("\n=== S1 create m1: enctype sweep (static) ===\n");
+    if (create_session(1, &c) == 0) {
         fill_cfg(0, 1920, 1080, 2, 1, 0, 0); sel4("enctype1/static/1920", c, 0, 0x1a0a0, 0);
         fill_cfg(0, 1920, 1080, 2, 0, 0, 0); sel4("enctype0/static/1920", c, 0, 0x1a0a0, 0);
         fill_cfg(0, 1920, 1080, 2, 2, 0, 0); sel4("enctype2/static/1920", c, 0, 0x1a0a0, 0);
         destroy_close(c);
+    }
+
+    printf("\n=== S5 no create: gate ladder ===\n");
+    if (p_IOServiceOpen(svc, mach_task_self(), 1, &c) == 0) {
+        fill_cfg(0, 1920, 1080, 2, 0, 0, 0); sel4("S5/P6e0", c, 0, 0x38, 0);
+        fill_cfg(0, 1920, 1080, 2, 0, 0, 0); sel4("S5/P7e0", c, 0, 0x28, 1);
+        fill_cfg(0, 1920, 1080, 2, 1, 0, 0); sel4("S5/P6e1", c, 0, 0x38, 0);
+        fill_cfg(0, 1920, 1080, 2, 1, 0, 0); sel4("S5/P7e1", c, 0, 0x28, 1);
+        p_IOServiceClose(c);
     }
 
     printf("\n=== S4 create m1 + sel3 async: gate ladder (v22) ===\n");
@@ -150,6 +167,15 @@ int main(void) {
         fill_cfg(0, 1920, 1080, 2, 1, 0, 0); sel4("P6/e1", c, 0, 0x38, 0);
         fill_cfg(0, 1920, 1080, 2, 1, 0, 0); sel4("P7/e1", c, 0, 0x28, 1);
         destroy_close(c);
+    }
+
+    printf("\n=== T: no-create ladder tail ===\n");
+    if (p_IOServiceOpen(svc, mach_task_self(), 1, &c) == 0) {
+        fill_cfg(0, 1920, 1080, 2, 0, 0, 0); sel4("T/P6e0", c, 0, 0x38, 0);
+        fill_cfg(0, 1920, 1080, 2, 0, 0, 0); sel4("T/P7e0", c, 0, 0x28, 1);
+        fill_cfg(0, 1920, 1080, 2, 1, 0, 0); sel4("T/P6e1", c, 0, 0x38, 0);
+        fill_cfg(0, 1920, 1080, 2, 1, 0, 0); sel4("T/P7e1", c, 0, 0x28, 1);
+        p_IOServiceClose(c);
     }
 
     munmap(anon, sizeof(anon_in));
