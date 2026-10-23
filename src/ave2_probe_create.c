@@ -124,6 +124,20 @@ static void sel3_async(io_connect_t c, mach_port_t wake) {
 
 /* ---- v24 generic field-patch infra (env-driven, no assumptions) ---- */
 
+static void apply_patch_quiet(uint8_t *buf, const char *spec) {
+    if (spec == NULL || !spec[0]) return;
+    char tmp[4096]; snprintf(tmp, sizeof(tmp), "%s", spec);
+    char *save = NULL;
+    for (char *tok = strtok_r(tmp, ";,", &save); tok; tok = strtok_r(NULL, ";,", &save)) {
+        char *colon = strchr(tok, ':'); if (!colon) continue;
+        *colon = 0;
+        unsigned long off = strtoul(tok, NULL, 0);
+        uint32_t val = (uint32_t)strtoul(colon + 1, NULL, 0);
+        if (off + 4 > 0x1a0a0) continue;
+        *(uint32_t *)(buf + off) = val;
+    }
+}
+
 /* AVE2_PATCH="0x3204:2;0x2f64:3" -> write u32 LE at each offset */
 static void apply_patch(uint8_t *buf, const char *spec) {
     if (spec == NULL || !spec[0]) return;
