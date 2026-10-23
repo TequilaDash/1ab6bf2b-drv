@@ -1,26 +1,15 @@
 /*
- * ave2_probe_create.c v14 — descriptor-path discriminator matrix
+ * ave2_probe_create.c v15 — sel4 configure parameter sweep (fresh conn per case)
  *
- * Established (v7-v13): create(sel1, 0x6f0/0x28, version "904.76.7" @+0x28,
- * monotonic log counter) = KERN_SUCCESS. sel4 configure (0x1a0a0/0x20,
- * exact size) = 0xe00002bc with out UNTOUCHED. sel5 (0x1a0b0/0x150) =
- * 0xe00002d9. Static RE (kernelcache 26.0.1): the trap turns >0x1000 MIG
- * data_t into OOL descriptors (withAddressRange flags 0x20002 in / 1 out)
- * and never pre-maps; the kext object path calls desc->vt[0xd8](0) then
- * desc->vt[0xe8](0x1000=IOMemoryWrapper) and maps NULL -> bc exit2.
- * Apple's own client uses IOConnectCallStructMethod only -> same OOL path.
+ * v14 findings (device): sel4 with live session = 0xe00002bc x8 deterministic,
+ * out 100%% untouched (0xAA prefill intact) -> the out-write after the kext
+ * checker is conditional, so bc is most plausibly translate(<unmapped AVE
+ * session error>). sel4 with NO session = 0xe00002d9 (= fc0d -1011 no-session).
+ * sel5 = 0xe00002d9 with session, sel2 = 0 everywhere. Async == sync.
  *
- * v14 fixes the configure version string ("904.76.7" @+0x28 AND @+0x00 —
- * the iOS checker 0x1b98d30 memcmps in+0x28 against "904.76.7", we used
- * to send macOS "905.40.1") and runs a discriminator matrix:
- *   D1 sel4 OOL with out prefill 0xAA   (is out really untouched?)
- *   D2 sel4 twice back-to-back          (stateful effect on same UC?)
- *   D3 sel5 -> sel4 -> sel5             (order/state coupling)
- *   D6 sel4 x8 repeats                  (determinism / map-registry memory)
- *   D7 sel4 async + wake port           (async dispatch variant)
- *   D8 sel2 async                       (inband async)
- *   D5 sel2 destroy after create        (state readback: fc0d expected)
- *   D4 sel2 destroy on FRESH 2nd conn   (raw inband path sanity, expect 0)
+ * v15 question: is bc structural (missing/invalid cfg fields) or param-driven
+ * (dimension/p6 rejection)? Sweep 11 parameter sets, each on a FRESH
+ * open->create->sel4->destroy->close cycle so session state never leaks.
  */
 
 #include <stdio.h>
@@ -28,8 +17,6 @@
 #include <string.h>
 #include <stdint.h>
 #include <mach/mach.h>
-#include <sys/mman.h>
-#include <errno.h>
 
 #include "iokit_dyn.h"
 #include "ave2_wire.h"
@@ -38,24 +25,23 @@
 static const char *krname(kern_return_t k) {
     switch (k) {
     case 0:              return "KERN_SUCCESS";
-    case 0xe00002c2u:    return "c2 BadArgument (dispatcher size gate)";
+    case 0xe00002c2u:    return "c2 dispatcher size gate";
     case 0xe00002c7u:    return "c7 Unsupported";
-    case 0xe00002bcu:    return "0xbc (kext map-NULL exit / mismatch)";
-    case 0xe00002d8u:    return "0xd8 (AVE -1009 / IOMemoryDescriptor busy)";
-    case 0xe00002d9u:    return "0xd9 (AVE -1011 prepare-busy)";
-    case 0xfffffc09u:    return "0xfffffc09 version mismatch";
-    case 0xfffffc17u:    return "0xfffffc17 param/validation";
-    case 0xfffffc0du:    return "0xfffffc0d wrong state (no session)";
+    case 0xe00002bcu:    return "0xbc unmapped-AVE / gate";
+    case 0xe00002d8u:    return "0xd8 throttled/busy";
+    case 0xe00002d9u:    return "0xd9 no-session (-1011) / NotAttached";
+    case 0xfffffc09u:    return "fc09 version";
+    case 0xfffffc17u:    return "fc17 param";
+    case 0xfffffc0du:    return "fc0d state";
     default:             return "";
     }
 }
 
-/* dump out: always print first n bytes + whether all-zero */
 static void dump_out(const uint8_t *out, size_t osz, size_t n) {
     size_t m = osz < n ? osz : n;
     int allz = 1;
     for (size_t q = 0; q < osz; q++) if (out[q]) { allz = 0; break; }
-    printf("  osz=%zu allzero=%d out[0..%zu]:", osz, allz, m);
+    printf("  osz=%zu allzero=%d out:", osz, allz);
     for (size_t q = 0; q < m; q++) printf("%02x", out[q]);
     printf("\n");
 }
@@ -71,160 +57,117 @@ static void build_create_input(uint8_t *in, size_t cap, uint64_t counter, int32_
     *(int32_t *)(in + AVE2_IOS_CREATE_OFF_MODE)   = mode;
 }
 
-static fp_IOConnectSetNotificationPort p_SetNotif;
-static const ave2_profile_t *prof;
-
 static uint8_t  cin[0x1a0c0];
+static uint8_t  in[0x6f0];
 static uint8_t  out[0x400];
-static uint64_t counter = 0x0000700000000001ULL;
+static uint64_t counter = 0x0000700000000C00ULL;
 
-/* v14: iOS configure version = "904.76.7" at BOTH +0x00 and +0x28 */
-#define CFGFILL() do { \
-        memset(cin, 0, sizeof(cin)); \
-        memcpy(cin + 0x00, "904.76.7", 8); \
-        memcpy(cin + 0x28, "904.76.7", 8); \
-        *(int32_t  *)(cin + AVE2_OFF_WIDTH)        = (int32_t)prof->w; \
-        *(int32_t  *)(cin + AVE2_OFF_HEIGHT)       = (int32_t)prof->h; \
-        *(int32_t  *)(cin + AVE2_MODE5_OFF_P6)     = 2; \
-        *(int32_t  *)(cin + AVE2_MODE5_OFF_P8)     = 10; \
-        *(uint8_t  *)(cin + AVE2_MODE5_OFF_P9FLAG) = 0; \
-        *(int32_t  *)(cin + AVE2_OFF_NUMVIEWS)     = 1; \
-        *(int32_t  *)(cin + AVE2_OFF_NUMLAYERS)    = 1; \
-    } while (0)
+typedef struct {
+    const char *tag;
+    int w, h, p6, p8, views, layers, slices, p7, enctype;
+    uint64_t timeout;
+} pcase_t;
 
-static kern_return_t call4(io_connect_t c, uint8_t *o, size_t *osz, int prefill) {
-    CFGFILL();
-    memset(o, prefill ? 0xAA : 0, sizeof(out));
-    *osz = 0x20;
-    return p_IOConnectCallStructMethod(c, 4, cin, 0x1a0a0, o, osz);
+static void fill_cfg(const pcase_t *c) {
+    memset(cin, 0, sizeof(cin));
+    memcpy(cin + 0x00, "904.76.7", 8);
+    memcpy(cin + 0x28, "904.76.7", 8);
+    *(int32_t  *)(cin + AVE2_OFF_WIDTH)     = c->w;
+    *(int32_t  *)(cin + AVE2_OFF_HEIGHT)    = c->h;
+    *(int32_t  *)(cin + AVE2_MODE5_OFF_P6)  = c->p6;
+    *(int32_t  *)(cin + AVE2_MODE5_OFF_P8)  = c->p8;
+    *(uint8_t  *)(cin + AVE2_MODE5_OFF_P9FLAG) = 0;
+    *(int32_t  *)(cin + AVE2_OFF_NUMVIEWS)  = c->views;
+    *(int32_t  *)(cin + AVE2_OFF_NUMLAYERS) = c->layers;
+    if (c->slices)  *(int32_t *)(cin + AVE2_OFF_SLICES)  = c->slices;
+    if (c->p7)      *(int32_t *)(cin + AVE2_MODE5_OFF_P7) = c->p7;
+    if (c->enctype) *(int32_t *)(cin + AVE2_OFF_ENCTYPE) = c->enctype;
+    if (c->timeout) *(uint64_t *)(cin + 0x18) = c->timeout;
 }
 
-static kern_return_t call5(io_connect_t c, uint8_t *o, size_t *osz, int prefill) {
-    CFGFILL();
-    memset(o, prefill ? 0xAA : 0, sizeof(out));
-    *osz = 0x150;
-    return p_IOConnectCallStructMethod(c, 5, cin, 0x1a0b0, o, osz);
-}
-
-static kern_return_t call2(io_connect_t c, uint8_t *o, size_t *osz) {
-    uint8_t din[0x28] = {0};
-    memset(o, 0, sizeof(out));
+static kern_return_t call4(io_connect_t c, size_t *osz) {
+    memset(out, 0xAA, sizeof(out));
     *osz = 0x20;
-    return p_IOConnectCallStructMethod(c, 2, din, 0x28, o, osz);
+    return p_IOConnectCallStructMethod(c, 4, cin, 0x1a0a0, out, osz);
 }
 
 int main(void) {
     setvbuf(stdout, NULL, _IONBF, 0);
-
     if (iodyn_init() != 0) { printf("[-] iodyn\n"); return 3; }
-    p_SetNotif = (fp_IOConnectSetNotificationPort)dlsym(iodyn_handle, "IOConnectSetNotificationPort");
-    prof = ave2_profile_get(0);
-    printf("[*] profile %dx%d  SetNotif=%s\n", prof->w, prof->h, p_SetNotif ? "ok" : "NULL");
 
     void *m = p_IOServiceMatching("AppleAVE2Driver");
     io_service_t svc = p_IOServiceGetMatchingService(IODYN_MAIN_PORT, m);
     if (!svc) { printf("[-] no service\n"); return 1; }
-    io_connect_t conn = MACH_PORT_NULL;
-    kern_return_t kr = p_IOServiceOpen(svc, mach_task_self(), 1, &conn);
-    if (kr != KERN_SUCCESS) { printf("[-] open: 0x%x\n", kr); return 2; }
-    printf("[+] conn1 0x%x\n\n", conn);
 
-    mach_port_t wake = MACH_PORT_NULL;
-    mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_RECEIVE, &wake);
-
-    static uint8_t in[0x1a0a0];
     const char *e = getenv("AVE2_LOGCNT");
     if (e != NULL && e[0]) counter = strtoull(e, NULL, 0);
 
-    int created = 0;
-    for (int mode = 0; mode <= 10 && !created; mode++) {
-        printf("=== create mode=%d 0x6f0/0x28 ===\n", mode);
-        build_create_input(in, AVE2_IOS_CREATE_IN_SIZE, ++counter, mode);
+    /* the baseline brute/overflow pair from the upstream analysis, plus legal
+     * anchors to separate structural vs param failure */
+    static const pcase_t cases[] = {
+        /*  tag           w      h     p6 p8 views layers slices p7 enc timeout */
+        { "P0 baseline-overflow-64656x8080-p6=2", 64656, 8080, 2, 10, 1, 1, 0, 0, 0, 0 },
+        { "P1 legal-1920x1080-p6=2",              1920, 1080, 2, 10, 1, 1, 0, 0, 0, 0 },
+        { "P2 legal-1920x1080-p6=3",              1920, 1080, 3, 10, 1, 1, 0, 0, 0, 0 },
+        { "P3 brute-65424x5264-p6=3",            65424, 5264, 3, 10, 1, 1, 0, 0, 0, 0 },
+        { "P4 overflow-64656x8080-p6=3",          64656, 8080, 3, 10, 1, 1, 0, 0, 0, 0 },
+        { "P5 baseline+timeout=1e9",              64656, 8080, 2, 10, 1, 1, 0, 0, 0, 1000000000ULL },
+        { "P6 legal+slices=1",                    1920, 1080, 2, 10, 1, 1, 1, 0, 0, 0 },
+        { "P7 legal+p7=1",                        1920, 1080, 2, 10, 1, 1, 0, 1, 0, 0 },
+        { "P8 legal+enctype=1",                   1920, 1080, 2, 10, 1, 1, 0, 0, 1, 0 },
+        { "P9 tiny-16x16-p6=2",                     16,   16, 2, 10, 1, 1, 0, 0, 0, 0 },
+        { "P10 legal-views2-layers2",             1920, 1080, 2, 10, 2, 2, 0, 0, 0, 0 },
+    };
+
+    for (size_t i = 0; i < sizeof(cases)/sizeof(cases[0]); i++) {
+        const pcase_t *c = &cases[i];
+        printf("\n=== %s (%dx%d p6=%d) ===\n", c->tag, c->w, c->h, c->p6);
+        io_connect_t conn = MACH_PORT_NULL;
+        kern_return_t kr = p_IOServiceOpen(svc, mach_task_self(), 1, &conn);
+        if (kr != 0) { printf("  open fail 0x%08x\n", kr); continue; }
+        /* create (mode 1 = the only iOS-accepted session mode besides 2) */
+        build_create_input(in, AVE2_IOS_CREATE_IN_SIZE, ++counter, 1);
         size_t osz = AVE2_IOS_CREATE_OUT_SIZE;
         memset(out, 0, sizeof(out));
-        kern_return_t k = p_IOConnectCallStructMethod(conn, 1, in, AVE2_IOS_CREATE_IN_SIZE, out, &osz);
-        printf("  -> 0x%08x %s ", k, krname(k)); dump_out(out, osz, 0x28);
-        created = (k == 0);
-    }
-    printf("\n[create %s]\n", created ? "OK" : "FAILED");
-
-    if ((e = getenv("AVE2_CONFIGURE")) != NULL && e[0] == '1' && created) {
-        kern_return_t k; size_t osz;
-        printf("\n=== D1 sel4 OOL 0x1a0a0/0x20, out prefill 0xAA ===\n");
-        k = call4(conn, out, &osz, 1);
-        printf("  [D1] -> 0x%08x %s\n", k, krname(k)); dump_out(out, osz, 0x20);
-
-        printf("\n=== D2 sel4 again (same conn) ===\n");
-        k = call4(conn, out, &osz, 1);
-        printf("  [D2] -> 0x%08x %s\n", k, krname(k)); dump_out(out, osz, 0x20);
-
-        printf("\n=== D3 order: sel5 -> sel4 -> sel5 ===\n");
-        k = call5(conn, out, &osz, 1);
-        printf("  [D3.a sel5] -> 0x%08x %s\n", k, krname(k)); dump_out(out, osz, 0x150);
-        k = call4(conn, out, &osz, 1);
-        printf("  [D3.b sel4] -> 0x%08x %s\n", k, krname(k)); dump_out(out, osz, 0x20);
-        k = call5(conn, out, &osz, 1);
-        printf("  [D3.c sel5] -> 0x%08x %s\n", k, krname(k)); dump_out(out, osz, 0x150);
-
-        printf("\n=== D6 sel4 x8 determinism ===\n");
-        { kern_return_t seen[16]; int cnt[16], n = 0;
-          for (int i = 0; i < 8; i++) {
-            k = call4(conn, out, &osz, 0);
-            int f = -1;
-            for (int j = 0; j < n; j++) if (seen[j] == k) { f = j; break; }
-            if (f < 0 && n < 16) { seen[n] = k; cnt[n] = 1; n++; }
-            else if (f >= 0) cnt[f]++;
-            printf("  [D6.%d] 0x%08x\n", i + 1, k);
-          }
-          printf("  [D6 summary]");
-          for (int j = 0; j < n; j++) printf(" 0x%08x x%d", seen[j], cnt[j]);
-          printf("\n");
-        }
-
-        printf("\n=== D7 sel4 async + wake port ===\n");
-        {
-            iodyn_async_ref_t aref = {0x41414141, 0, 0, 0, 0, 0, 0, 0};
-            kern_return_t kn = p_SetNotif ? p_SetNotif(conn, 0, wake) : -1;
-            printf("  SetNotificationPort(type0) -> 0x%08x\n", kn);
-            CFGFILL(); memset(out, 0xAA, sizeof(out)); osz = 0x20;
-            k = p_IOConnectCallAsyncStructMethod(conn, 4, wake, aref, 8, cin, 0x1a0a0, out, &osz);
-            printf("  [D7] -> 0x%08x %s\n", k, krname(k)); dump_out(out, osz, 0x20);
-        }
-
-        printf("\n=== D8 sel2 async ===\n");
-        {
-            uint8_t din[0x28] = {0};
-            iodyn_async_ref_t aref = {0x42424242, 0, 0, 0, 0, 0, 0, 0};
-            memset(out, 0, sizeof(out)); osz = 0x20;
-            k = p_IOConnectCallAsyncStructMethod(conn, 2, wake, aref, 8, din, 0x28, out, &osz);
-            printf("  [D8] -> 0x%08x %s\n", k, krname(k)); dump_out(out, osz, 0x20);
-        }
-
-        printf("\n=== D5 sel2 destroy AFTER create (state readback) ===\n");
-        k = call2(conn, out, &osz);
-        printf("  [D5] -> 0x%08x %s\n", k, krname(k)); dump_out(out, osz, 0x20);
-
-        printf("\n=== D4 fresh 2nd conn: sel2 destroy with NO create ===\n");
-        {
-            io_connect_t c2 = MACH_PORT_NULL;
-            kr = p_IOServiceOpen(svc, mach_task_self(), 1, &c2);
-            printf("  open2 -> 0x%08x conn2=0x%x\n", kr, c2);
-            if (kr == 0) {
-                k = call2(c2, out, &osz);
-                printf("  [D4] -> 0x%08x %s\n", k, krname(k)); dump_out(out, osz, 0x20);
-                k = call4(c2, out, &osz, 0);
-                printf("  [D4b sel4 no-create] -> 0x%08x %s\n", k, krname(k)); dump_out(out, osz, 0x20);
-                p_IOServiceClose(c2);
+        kern_return_t k1 = p_IOConnectCallStructMethod(conn, 1, in, AVE2_IOS_CREATE_IN_SIZE, out, &osz);
+        printf("  create -> 0x%08x %s\n", k1, krname(k1));
+        if (k1 == 0) {
+            fill_cfg(c);
+            kern_return_t k4 = call4(conn, &osz);
+            printf("  sel4   -> 0x%08x %s\n", k4, krname(k4));
+            dump_out(out, osz, 0x20);
+            if (k4 == 0) {
+                printf("  *** CONFIGURE SUCCESS — session configured ***\n");
+                /* probe follow-ups immediately */
+                uint8_t din6[0x30] = {0};
+                memset(out, 0xAA, sizeof(out)); osz = 0x20;
+                kern_return_t k6 = p_IOConnectCallStructMethod(conn, 6, din6, 0x30, out, &osz);
+                printf("  sel6   -> 0x%08x %s\n", k6, krname(k6)); dump_out(out, osz, 0x20);
             }
         }
+        /* destroy + close (fresh state for next case) */
+        { uint8_t din[0x28] = {0}; memset(out, 0, sizeof(out)); osz = 0x20;
+          kern_return_t k2 = p_IOConnectCallStructMethod(conn, 2, din, 0x28, out, &osz);
+          printf("  destroy -> 0x%08x\n", k2); }
+        p_IOServiceClose(conn);
     }
 
-    printf("\n=== final sel2 destroy (main conn) ===\n");
-    { size_t osz; kern_return_t k = call2(conn, out, &osz);
-      printf("  -> 0x%08x %s\n", k, krname(k)); dump_out(out, osz, 0x20); }
+    /* no-session reference on a 12th conn */
+    printf("\n=== REF no-session sel4 (fresh conn, no create) ===\n");
+    {
+        io_connect_t conn = MACH_PORT_NULL;
+        kern_return_t kr = p_IOServiceOpen(svc, mach_task_self(), 1, &conn);
+        if (kr == 0) {
+            static const pcase_t ref = { "REF legal", 1920, 1080, 2, 10, 1, 1, 0, 0, 0, 0 };
+            fill_cfg(&ref);
+            size_t osz;
+            kern_return_t k4 = call4(conn, &osz);
+            printf("  sel4   -> 0x%08x %s\n", k4, krname(k4));
+            dump_out(out, osz, 0x20);
+            p_IOServiceClose(conn);
+        }
+    }
 
-    mach_port_destroy(mach_task_self(), wake);
-    p_IOServiceClose(conn);
     p_IOObjectRelease(svc);
-    return created ? 42 : 5;
+    return 42;
 }
