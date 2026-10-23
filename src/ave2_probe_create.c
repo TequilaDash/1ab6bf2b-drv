@@ -55,6 +55,7 @@ static uint8_t  out[0x400];
 static uint64_t counter = 0x0000700000001000ULL;
 
 static mach_port_t wake;
+static io_service_t svc;
 
 static kern_return_t create_session(io_service_t svc, io_connect_t *conn) {
     *conn = MACH_PORT_NULL;
@@ -121,8 +122,6 @@ static kern_return_t sel4_async(int w, int h, int p6) {
     destroy_close(c);
     return kr;
 }
-
-static io_service_t svc;
 
 int main(void) {
     setvbuf(stdout, NULL, _IONBF, 0);
