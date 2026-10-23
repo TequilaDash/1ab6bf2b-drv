@@ -166,6 +166,50 @@ static void sel4_p(const char *tag, io_connect_t c, int which, size_t isz, const
     dump_out(out, o, 0x20);
 }
 
+
+/* ---- v36 helpers ---- */
+#ifndef MACH_MSGS_RCV_TIMED_OUT
+#define MACH_MSGS_RCV_TIMED_OUT 0x100
+#endif
+
+/* let async replies be delivered so the kext can record the notification port */
+static void drain_wake(mach_port_t p, int ms) {
+    static uint8_t mbuf[0x400];
+    if (p == MACH_PORT_NULL) return;
+    for (int i = 0; i < 8; i++) {
+        mach_msg_header_t *hdr = (mach_msg_header_t *)mbuf;
+        kern_return_t kr = mach_msg(hdr, MACH_RCV_MSG_V | MACH_RCV_TIMEOUT_V, 0,
+                                    sizeof(mbuf), p, MACH_MSGS_RCV_TIMED_OUT,
+                                    (mach_msg_timeout_t)ms);
+        printf("    [drain %d] mach_msg -> 0x%08x msid=%d\n", i, kr, (int)hdr->msgh_id);
+        if (kr != MACH_RCV_SUCCESS) break;
+    }
+}
+
+/* shared state walk: sel5..sel10 after a successful configure */
+static void state_walk(io_connect_t c) {
+    { uint8_t d5[0x1a0b0]; memset(d5,0,sizeof(d5)); memcpy(d5,stat_in,0x1a0a0);
+      *(uint32_t *)(d5 + 0x28) = 1;   /* verifier 0x1b98f14 requires in+0x28 != 0 */
+      uint8_t o5[0x150]; size_t o5z = 0x150; memset(o5, 0xAA, sizeof(o5));
+      kern_return_t k5 = p_IOConnectCallStructMethod(c, 5, d5, sizeof(d5), o5, &o5z);
+      printf("    sel5 -> 0x%08x %s osz=%zu out0:", k5, krname(k5), o5z);
+      for (size_t q = 0; q < 16 && q < o5z; q++) printf("%02x", o5[q]);
+      printf("\n"); }
+    { uint8_t d6[0x30]; memset(d6,0,sizeof(d6)); memcpy(d6,stat_in,0x30); *(uint32_t *)(d6+0x28)=1;
+      uint8_t o6[0x20]; size_t o6z = 0x20; memset(o6, 0xAA, sizeof(o6));
+      kern_return_t k6 = p_IOConnectCallStructMethod(c, 6, d6, sizeof(d6), o6, &o6z);
+      printf("    sel6 -> 0x%08x %s osz=%zu out0:", k6, krname(k6), o6z);
+      for (size_t q = 0; q < 16 && q < o6z; q++) printf("%02x", o6[q]);
+      printf("\n"); }
+    for (int sel = 7; sel <= 10; sel++) {
+        uint8_t d7[0x30]; memset(d7,0,sizeof(d7)); memcpy(d7,stat_in,0x30); *(uint32_t *)(d7+0x28)=1;
+        *(int32_t *)(d7 + 0x08) = 1;
+        uint8_t o7[0x20]; size_t o7z = 0x20; memset(o7, 0xAA, sizeof(o7));
+        kern_return_t k7 = p_IOConnectCallStructMethod(c, sel, d7, sizeof(d7), o7, &o7z);
+        printf("    sel%d -> 0x%08x %s osz=%zu out0:", sel, k7, krname(k7), o7z);
+        for (size_t q = 0; q < 16 && q < o7z; q++) printf("%02x", o7[q]);
+        printf("\n"); }
+}
 int main(void) {
     setvbuf(stdout, NULL, _IONBF, 0);
     if (iodyn_init() != 0) { printf("[-] iodyn\n"); return 3; }
@@ -256,27 +300,40 @@ int main(void) {
         if (create_session(m, &c) != 0) { printf("[-] create\n"); return 42; }
         fill_cfg(0, 1920, 1080, 2, 1, 0, 0);
         sel4_p("st", c, 0, 0x1a0a0, patch);
-        { uint8_t d5[0x1a0b0]; memset(d5,0,sizeof(d5)); memcpy(d5,stat_in,0x1a0a0);
-          *(uint32_t *)(d5 + 0x28) = 1;   /* verifier 0x1b98f14 requires in+0x28 != 0 */
-          uint8_t o5[0x150]; size_t o5z = 0x150; memset(o5, 0xAA, sizeof(o5));
-          kern_return_t k5 = p_IOConnectCallStructMethod(c, 5, d5, sizeof(d5), o5, &o5z);
-          printf("    sel5 -> 0x%08x osz=%zu out0:", k5, o5z);
-          for (size_t q = 0; q < 16 && q < o5z; q++) printf("%02x", o5[q]);
-          printf("\n"); }
-        { uint8_t d6[0x30]; memset(d6,0,sizeof(d6)); memcpy(d6,stat_in,0x30); *(uint32_t *)(d6+0x28)=1;
-          uint8_t o6[0x20]; size_t o6z = 0x20; memset(o6, 0xAA, sizeof(o6));
-          kern_return_t k6 = p_IOConnectCallStructMethod(c, 6, d6, sizeof(d6), o6, &o6z);
-          printf("    sel6 -> 0x%08x osz=%zu out0:", k6, o6z);
-          for (size_t q = 0; q < 16 && q < o6z; q++) printf("%02x", o6[q]);
-          printf("\n"); }
-        for (int sel = 7; sel <= 10; sel++) {
-            uint8_t d7[0x30]; memset(d7,0,sizeof(d7)); memcpy(d7,stat_in,0x30); *(uint32_t *)(d7+0x28)=1;
-            *(int32_t *)(d7 + 0x08) = 1;
-            uint8_t o7[0x20]; size_t o7z = 0x20; memset(o7, 0xAA, sizeof(o7));
-            kern_return_t k7 = p_IOConnectCallStructMethod(c, sel, d7, sizeof(d7), o7, &o7z);
-            printf("    sel%d -> 0x%08x osz=%zu out0:", sel, k7, o7z);
-            for (size_t q = 0; q < 16 && q < o7z; q++) printf("%02x", o7[q]);
-            printf("\n"); }
+        state_walk(c);
+        destroy_close(c);
+    } else if (test != NULL && strcmp(test, "s3sweep") == 0) {
+        /* v36: sel5 -1011 (wrong state) means [UC+0x100] == NULL.
+           The only non-zero writer of [UC+0x100] in the whole kext is 0x1b9c71c,
+           reached from the sel3 (IO_Config) async path => issue sel3 async BEFORE configure. */
+        const char *patch = getenv("AVE2_MS_PATCH");
+        int m = getenv("AVE2_CREATE_MODE") ? atoi(getenv("AVE2_CREATE_MODE")) : 1;
+        int s3v = getenv("AVE2_S3_VARIANT") ? atoi(getenv("AVE2_S3_VARIANT")) : 0;
+        int dms = getenv("AVE2_DRAIN_MS") ? atoi(getenv("AVE2_DRAIN_MS")) : 800;
+        printf("=== s3sweep mode %d s3var %d drain %dms: create->sel3(async)->sel4->sel5..10 ===\n", m, s3v, dms);
+        if (create_session(m, &c) != 0) { printf("[-] create\n"); return 42; }
+        {
+            uint8_t din[0x40]; memset(din,0,sizeof(din));
+            memcpy(din, "904.76.7", 8);
+            iodyn_async_ref_t aref; memset(aref,0,sizeof(aref));
+            switch (s3v) {
+            case 0: aref[0] = 1; break;
+            case 1: aref[0] = 1; aref[1] = 1; break;
+            case 2: for (int q = 0; q < 8; q++) aref[q] = *(uint64_t *)(out + q * 8); break;
+            case 3: aref[0] = (uint64_t)mach_task_self(); break;
+            default: aref[0] = 1; break;
+            }
+            memset(out, 0xAA, sizeof(out));
+            size_t o = 0x20;
+            kern_return_t kr = p_IOConnectCallAsyncStructMethod(c, 3, wake, aref, 8, din, 0x38, out, &o);
+            printf("    sel3 async(v%d) -> 0x%08x %s osz=%zu out0:", s3v, kr, krname(kr), o);
+            for (size_t q = 0; q < 16 && q < o; q++) printf("%02x", out[q]);
+            printf("\n");
+        }
+        drain_wake(wake, dms);
+        fill_cfg(0, 1920, 1080, 2, 1, 0, 0);
+        sel4_p("st", c, 0, 0x1a0a0, patch);
+        state_walk(c);
         destroy_close(c);
     } else if (test != NULL && strcmp(test, "s2reg") == 0) {
         /* v31: real-client sequence = create -> sel2(session register) -> sel4 -> sel5.
