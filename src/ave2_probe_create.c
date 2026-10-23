@@ -818,6 +818,65 @@ int main(void) {
             }
             printf("=== surf done ===\n");
         }
+    } else if (test != NULL && strcmp(test, "hdr5") == 0) {
+        /* v45: AVE_Client_Check_Start @0x1a25d70 头三行:
+              0x1a25d94 ldr w8,[x20,#4] ; 0x1a25d98 cmp w8,#5 ; b.ne -> "mismatched command type" -> -1015
+           且 0x10 + 0x1a0a0 == 0x1a0b0 精确成立
+           => Start 输入 = 16 字节命令头(+0x04=eUCCmd=AVE_UCCmd_Start=5) + 完整 Prepare 结构体
+           此前所有 sel5 尝试都把 Prepare 结构体放在 +0x00，整体错位 0x10。 */
+        const char *patch = getenv("AVE2_MS_PATCH");
+        int m = getenv("AVE2_CREATE_MODE") ? atoi(getenv("AVE2_CREATE_MODE")) : 1;
+        printf("=== hdr5: create m%d -> sel4 -> sel5 with 16-byte cmd header ===\n", m);
+        for (int casei = 0; casei < 8; casei++) {
+            if (create_session(m, &c) != 0) { printf("[-] create at case %d\n", casei); break; }
+            { uint8_t din[0x40]; memset(din,0,sizeof(din)); memcpy(din,"904.76.7",8);
+              iodyn_async_ref_t aref; memset(aref,0,sizeof(aref)); aref[0]=1;
+              memset(out,0xAA,sizeof(out)); size_t o2=0x20;
+              p_IOConnectCallAsyncStructMethod(c,3,wake,aref,8,din,0x38,out,&o2); }
+            drain_wake(wake, 50);
+            fill_cfg(0, 1920, 1080, 2, 1, 0, 0);
+            sel4_p("h5pre", c, 0, 0x1a0a0, patch);
+            uint8_t d5[0x1a0b0]; memset(d5, 0, sizeof(d5));
+            uint8_t sub[0x1a0a0]; memset(sub, 0, sizeof(sub));
+            memcpy(sub, stat_in, 0x1a0a0);
+            if (patch) apply_patch(sub, patch);
+            if (casei == 7) {
+                /* LRB 回绕配方：flags=1(s=2) B=C=0x10000 D=E=4 => X=Y=0x10000, F3 回绕 0 */
+                *(uint32_t *)(sub + 0x254) = 1;
+                *(uint32_t *)(sub + 0x25c) = 0x10000;
+                *(uint32_t *)(sub + 0x260) = 0x10000;
+                *(uint32_t *)(sub + 0x264) = 4;
+                *(uint32_t *)(sub + 0x268) = 4;
+            }
+            if (casei == 6) {
+                /* 对照：不搬移，结构体仍在 +0，只把 +0x04 写成 5 */
+                memcpy(d5, sub, 0x1a0a0);
+                *(uint32_t *)(d5 + 0x04) = 5;
+            } else {
+                memcpy(d5 + 0x10, sub, 0x1a0a0);
+                static const uint32_t hdr[8][4] = {
+                    {0,5,0,0},{0,0,0,0},{0,4,0,0},{0,6,0,0},
+                    {1,5,0,0},{0,5,0,8},{0,5,0,0},{0,5,0,0}
+                };
+                *(uint32_t *)(d5 + 0x00) = hdr[casei][0];
+                *(uint32_t *)(d5 + 0x04) = hdr[casei][1];
+                *(uint32_t *)(d5 + 0x08) = hdr[casei][2];
+                *(uint32_t *)(d5 + 0x0c) = hdr[casei][3];
+            }
+            uint8_t o5[0x150]; size_t o5z = 0x150; memset(o5, 0xAA, sizeof(o5));
+            kern_return_t k5 = p_IOConnectCallStructMethod(c, 5, d5, sizeof(d5), o5, &o5z);
+            printf("    [h5-%d] sel5 -> 0x%08x %s osz=%zu out0:", casei, k5, krname(k5), o5z);
+            for (size_t q = 0; q < 24 && q < o5z; q++) printf("%02x", o5[q]);
+            printf("\n");
+            if (k5 == 0) {
+                uint8_t d6[0x30]; memset(d6,0,sizeof(d6)); memcpy(d6,"904.76.7",8);
+                uint8_t o6[0x20]; size_t o6z=0x20; memset(o6,0xAA,sizeof(o6));
+                kern_return_t k6 = p_IOConnectCallStructMethod(c,6,d6,sizeof(d6),o6,&o6z);
+                printf("    [h5-%d] sel6 after start -> 0x%08x %s\n", casei, k6, krname(k6));
+            }
+            destroy_close(c);
+        }
+        printf("=== hdr5 done ===\n");
     } else {
         /* default battery: enctype sweep + no-create ladder */
         printf("\n=== S1 create m1: enctype sweep (static) ===\n");
