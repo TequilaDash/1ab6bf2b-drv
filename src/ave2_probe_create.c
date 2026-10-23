@@ -306,6 +306,38 @@ int main(void) {
             destroy_close(c);
         }
         printf("=== s2reg done ===\n");
+    } else if (test != NULL && strcmp(test, "cfgscan") == 0) {
+        /* v33: locate LRB param block {flags,B,C,D,E} inside CONFIGURE input.
+           Patch a 5-field window at offset o, then sel4 -> sel5.
+           Hit = sel5 error changes from -1015. */
+        const char *patch = getenv("AVE2_MS_PATCH");
+        printf("=== cfgscan: LRB window sweep over configure input ===\n");
+        int lo = getenv("AVE2_SCAN_LO") ? (int)strtoul(getenv("AVE2_SCAN_LO"),0,0) : 0x28;
+        int hi = getenv("AVE2_SCAN_HI") ? (int)strtoul(getenv("AVE2_SCAN_HI"),0,0) : 0x1a0a0;
+        int hits = 0;
+        for (int o = lo; o + 0x18 <= hi && hits < 8; o += 4) {
+            if (create_session(1, &c) != 0) { printf("[-] create at o=0x%x\n", o); break; }
+            fill_cfg(0, 1920, 1080, 2, 1, 0, 0);
+            uint8_t d4[0x1a0a0]; memset(d4,0,sizeof(d4)); memcpy(d4,stat_in,0x1a0a0);
+            const char *mp = patch; if (mp) apply_patch_quiet(d4, mp);
+            *(uint32_t *)(d4 + o)        = 1;         /* flags -> s=2 */
+            *(uint32_t *)(d4 + o + 0x8)  = 0x10000;   /* B */
+            *(uint32_t *)(d4 + o + 0xc)  = 0x10000;   /* C */
+            *(uint32_t *)(d4 + o + 0x10) = 4;         /* D */
+            *(uint32_t *)(d4 + o + 0x14) = 4;         /* E */
+            uint8_t o4[0x20]; size_t o4z = 0x20; memset(o4, 0xAA, sizeof(o4));
+            kern_return_t k4 = p_IOConnectCallStructMethod(c, 4, d4, sizeof(d4), o4, &o4z);
+            uint8_t d5[0x1a0b0]; memset(d5,0,sizeof(d5)); memcpy(d5,stat_in,0x1a0a0);
+            *(uint32_t *)(d5 + 0x28) = 1;
+            uint8_t o5[0x150]; size_t o5z = 0x150; memset(o5, 0xAA, sizeof(o5));
+            kern_return_t k5 = p_IOConnectCallStructMethod(c, 5, d5, sizeof(d5), o5, &o5z);
+            if (k4 != 0 || k5 != 0xe0000001u) {
+                printf("[HIT] o=0x%x sel4=0x%08x sel5=0x%08x\n", o, k4, k5);
+                hits++;
+            }
+            destroy_close(c);
+        }
+        printf("=== cfgscan done hits=%d ===\n", hits);
     } else if (test != NULL && strcmp(test, "start5") == 0) {
         /* v28: sel5 UCStart matrix. kext verifier 0x1b98f14 requires:
            0x1b98084 s64 nonneg (in+0x10/+0x18/+0x20), [in+0x28] u32 != 0,
