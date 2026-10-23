@@ -64,6 +64,10 @@ static kern_return_t create_session(int mode, io_connect_t *conn) {
     *(int32_t *)(in + AVE2_IOS_CREATE_OFF_LOGLVL) = 1;
     *(int32_t *)(in + AVE2_IOS_CREATE_OFF_LOGNUM) = 1;
     *(int32_t *)(in + AVE2_IOS_CREATE_OFF_MODE)   = mode;
+    {
+        const char *cp = getenv("AVE2_CPATCH");
+        if (cp != NULL && cp[0]) apply_patch(in, cp);
+    }
     size_t osz = AVE2_IOS_CREATE_OUT_SIZE;
     memset(out, 0, sizeof(out));
     kern_return_t k1 = p_IOConnectCallStructMethod(*conn, 1, in, AVE2_IOS_CREATE_IN_SIZE, out, &osz);
