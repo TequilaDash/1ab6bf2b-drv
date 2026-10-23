@@ -334,11 +334,19 @@ int main(void) {
             fill_cfg(0, 1920, 1080, 2, 1, 0, 0);
             uint8_t d4[0x1a0a0]; memset(d4,0,sizeof(d4)); memcpy(d4,stat_in,0x1a0a0);
             const char *mp = patch; if (mp) apply_patch_quiet(d4, mp);
-            *(uint32_t *)(d4 + o)        = 1;         /* flags -> s=2 */
-            *(uint32_t *)(d4 + o + 0x8)  = 0x10000;   /* B */
-            *(uint32_t *)(d4 + o + 0xc)  = 0x10000;   /* C */
-            *(uint32_t *)(d4 + o + 0x10) = 4;         /* D */
-            *(uint32_t *)(d4 + o + 0x14) = 4;         /* E */
+            { /* v34: AVE2_SCAN_SINGLE -> patch single u32 at o (value AVE2_SCAN_VAL, default 1) */
+              const char *sm = getenv("AVE2_SCAN_SINGLE");
+              const char *sv = getenv("AVE2_SCAN_VAL");
+              uint32_t pv = sv ? (uint32_t)strtoul(sv,0,0) : 1;
+              if (sm) { *(uint32_t *)(d4 + o) = pv; }
+              else {
+                *(uint32_t *)(d4 + o)        = 1;         /* flags -> s=2 */
+                *(uint32_t *)(d4 + o + 0x8)  = 0x10000;   /* B */
+                *(uint32_t *)(d4 + o + 0xc)  = 0x10000;   /* C */
+                *(uint32_t *)(d4 + o + 0x10) = 4;         /* D */
+                *(uint32_t *)(d4 + o + 0x14) = 4;         /* E */
+              }
+            }
             uint8_t o4[0x20]; size_t o4z = 0x20; memset(o4, 0xAA, sizeof(o4));
             kern_return_t k4 = p_IOConnectCallStructMethod(c, 4, d4, sizeof(d4), o4, &o4z);
             uint8_t d5[0x1a0b0]; memset(d5,0,sizeof(d5)); memcpy(d5,stat_in,0x1a0a0);
@@ -348,6 +356,7 @@ int main(void) {
             if (k4 != 0 || (k5 != 0xe0000001u && k5 != 0xe00002d9u)) {
                 printf("[HIT] o=0x%x sel4=0x%08x sel5=0x%08x\n", o, k4, k5);
                 hits++;
+                if (getenv("AVE2_SCAN_ALL")) continue;
             }
             destroy_close(c);
         }
