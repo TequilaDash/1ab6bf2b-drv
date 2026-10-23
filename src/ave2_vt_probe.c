@@ -200,19 +200,23 @@ int main(void)
     }
     printf("[vt] submitted_ok = %d/%d\n", submitted_ok, VT_FRAMES);
     if (submitted_ok == 0) {
-        rc_final = 4;
-        goto end_session;
+        rc_final = 4; /* keep going: alive window is what matters for overlap */
     }
 
-    /* ---- 3) keep the session alive 10 s (BEFORE Complete/End) ---- */
-    printf("[vt] holding session alive %d s (callbacks may fire now)\n",
-           VT_ALIVE_SECS);
-    for (int i = 1; i <= VT_ALIVE_SECS; i++) {
-        fprintf(stderr, "VT_SESSION_ALIVE %d/%d\n", i, VT_ALIVE_SECS);
-        sleep(1);
+    /* ---- 3) keep the session alive 10 s (BEFORE Complete/End), unconditional ---- */
+    {
+        FILE *af = fopen("/var/root/vt_alive.txt", "w");
+        time_t t0 = time(NULL);
+        if (af) fprintf(af, "ALIVE_START %lld\n", (long long)t0);
+        printf("[vt] holding session alive %d s (callbacks may fire now)\n",
+               VT_ALIVE_SECS);
+        for (int i = 1; i <= VT_ALIVE_SECS; i++) {
+            fprintf(stderr, "VT_SESSION_ALIVE %d/%d\n", i, VT_ALIVE_SECS);
+            if (af) fprintf(af, "ALIVE_TICK %lld %d\n", (long long)time(NULL), i), fflush(af);
+            sleep(1);
+        }
+        if (af) { fprintf(af, "ALIVE_END %lld\n", (long long)time(NULL)); fclose(af); }
     }
-    printf("[vt] alive window done, callbacks so far = %u\n",
-           (unsigned)g_cb_fired);
 
 end_session:
     /* ---- 4) complete + end + callback stats ---- */
