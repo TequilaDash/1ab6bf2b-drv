@@ -194,6 +194,19 @@ int main(void) {
             if (!no_create) destroy_close(c);
             else p_IOServiceClose(c);
         }
+    } else if (test != NULL && strcmp(test, "modesweep") == 0) {
+        /* v25: create mode matrix 1..5 x enc 1/2, sel4 probe after each successful create */
+        const char *patch = getenv("AVE2_MS_PATCH");
+        printf("=== modesweep create m1..5 x enc1/2, sel4 after each success ===\n");
+        for (int m = 1; m <= 5; m++) {
+            for (int e = 1; e <= 2; e++) {
+                printf("--- mode %d enc %d ---\n", m, e);
+                if (create_session(m, &c) != 0) continue;
+                fill_cfg(0, 1920, 1080, 2, e, 0, 0);
+                sel4_p("ms", c, 0, 0x1a0a0, patch);
+                destroy_close(c);
+            }
+        }
     } else {
         /* default battery: enctype sweep + no-create ladder */
         printf("\n=== S1 create m1: enctype sweep (static) ===\n");
