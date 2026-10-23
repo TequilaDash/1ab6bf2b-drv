@@ -267,6 +267,14 @@ int main(void) {
             if (create_session(m, &c) != 0) { printf("[-] create\n"); break; }
             fill_cfg(0, 1920, 1080, 2, 1, 0, 0);
             sel4_p("s5pre", c, 0, 0x1a0a0, patch);
+            { /* v29: dump full sel4 out (0x20) — checker return @+0x18 may be a token for sel5 */
+              uint8_t d4[0x1a0a0]; memset(d4,0,sizeof(d4)); memcpy(d4,stat_in,0x1a0a0);
+              const char *mp2 = patch; if (mp2) apply_patch(d4, mp2);
+              uint8_t o4[0x20]; size_t o4z=0x20; memset(o4,0xAA,sizeof(o4));
+              kern_return_t k4 = p_IOConnectCallStructMethod(c, 4, d4, sizeof(d4), o4, &o4z);
+              printf("    [s5pre-full] sel4 -> 0x%08x out:", k4);
+              for (size_t q = 0; q < 0x20; q++) printf("%02x", o4[q]);
+              printf("\n"); }
             uint8_t d5[0x1a0b0]; memset(d5, 0, sizeof(d5));
             memcpy(d5, stat_in, 0x1a0a0);
             switch (casei) {
@@ -295,6 +303,25 @@ int main(void) {
               kern_return_t k6 = p_IOConnectCallStructMethod(c, 6, d6, 0x30, o6, &o6z);
               printf("    [s5-%d] sel6 -> 0x%08x\n", casei, k6); }
             destroy_close(c);
+        }
+
+        { /* v29: field probe scan — set one u32=1 at off, watch sel5 error move */
+          static const uint32_t offs[] = {0,4,8,0xc,0x10,0x14,0x18,0x1c,0x20,0x24,0x2c,0x30,0x34,0x38,0x3c,0x40,0x48,0x50,0x60,0x80,0xa0,0x200,0x9c4,0x9cc,0x9ec,0x1a0a8};
+          for (unsigned i = 0; i < sizeof(offs)/sizeof(offs[0]); i++) {
+              if (create_session(m, &c) != 0) { printf("[-] create\n"); break; }
+              fill_cfg(0, 1920, 1080, 2, 1, 0, 0);
+              sel4_p("sp", c, 0, 0x1a0a0, patch);
+              uint8_t d5[0x1a0b0]; memset(d5, 0, sizeof(d5));
+              memcpy(d5, stat_in, 0x1a0a0);
+              *(uint32_t *)(d5 + 0x28) = 1;
+              *(uint32_t *)(d5 + offs[i]) = 1;
+              uint8_t o5[0x150]; size_t o5z = 0x150; memset(o5, 0xAA, sizeof(o5));
+              kern_return_t k5 = p_IOConnectCallStructMethod(c, 5, d5, sizeof(d5), o5, &o5z);
+              printf("    [scan +%#x] sel5 -> 0x%08x out0:", offs[i], k5);
+              for (size_t q = 0; q < 8 && q < o5z; q++) printf("%02x", o5[q]);
+              printf("\n");
+              destroy_close(c);
+          }
         }
         printf("=== start5 done ===\n");
     } else {
