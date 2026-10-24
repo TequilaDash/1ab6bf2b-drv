@@ -391,8 +391,9 @@ int main(void) {
         const char *patch = getenv("AVE2_MS_PATCH");
         int dms = getenv("AVE2_DRAIN_MS") ? atoi(getenv("AVE2_DRAIN_MS")) : 500;
         int seq = getenv("AVE2_PWR_SEQ") ? atoi(getenv("AVE2_PWR_SEQ")) : 0;
-        printf("=== pwr5 seq %d drain %dms: create->sel3->sel4->[seq]->sel5 ===\n", seq, dms);
-        if (create_session(1, &c) != 0) { printf("[-] create\n"); return 42; }
+        int cm = getenv("AVE2_CREATE_MODE") ? atoi(getenv("AVE2_CREATE_MODE")) : 1;
+        printf("=== pwr5 seq %d cmode %d drain %dms: create->sel3->sel4->[seq]->sel5 ===\n", seq, cm, dms);
+        if (create_session(cm, &c) != 0) { printf("[-] create\n"); return 42; }
         {
             uint8_t din[0x40]; memset(din,0,sizeof(din)); memcpy(din, "904.76.7", 8);
             iodyn_async_ref_t aref; memset(aref,0,sizeof(aref)); aref[0] = 1;
