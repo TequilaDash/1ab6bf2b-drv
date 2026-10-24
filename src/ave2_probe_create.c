@@ -392,6 +392,8 @@ int main(void) {
         int dms = getenv("AVE2_DRAIN_MS") ? atoi(getenv("AVE2_DRAIN_MS")) : 500;
         int seq = getenv("AVE2_PWR_SEQ") ? atoi(getenv("AVE2_PWR_SEQ")) : 0;
         int cm = getenv("AVE2_CREATE_MODE") ? atoi(getenv("AVE2_CREATE_MODE")) : 1;
+        uint32_t id0 = 0;
+        { const char *ip = getenv("AVE2_ID_PROBE"); if (ip && atoi(ip)) id0 = surf_make_id(); }
         printf("=== pwr5 seq %d cmode %d drain %dms: create->sel3->sel4->[seq]->sel5 ===\n", seq, cm, dms);
         if (create_session(cm, &c) != 0) { printf("[-] create\n"); return 42; }
         {
@@ -434,11 +436,11 @@ int main(void) {
         { /* v56: IOSurface-ID probe — did sel4/WorkThread allocate new surfaces? */
           const char *ip = getenv("AVE2_ID_PROBE");
           if (ip && atoi(ip)) {
-            uint32_t a = surf_make_id();
+            uint32_t a = id0 ? id0 : surf_make_id();
             const char *dl = getenv("AVE2_P5_DELAY_MS");
             if (dl && atoi(dl) > 0) usleep((useconds_t)atoi(dl) * 1000);
             uint32_t b = surf_make_id();
-            printf("    [idprobe] before=%u after=%u delta=%d\n", a, b, (int)b - (int)a);
+            printf("    [idprobe] base=%u final=%u delta=%d\n", a, b, (int)b - (int)a);
           }
         }
         { /* v54: optional settle window between sel4 and sel5 (async WorkThread registration) */
