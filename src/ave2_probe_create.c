@@ -1021,6 +1021,33 @@ s5done:
             }
             destroy_close(c);
         }
+    } else if (test != NULL && strcmp(test, "s5two") == 0) {
+        /* two UCs: does the per-provider array grow to 2 so SID=1 becomes legal? */
+        puts("=== s5two: 2 UCs, sel5 with SID=1..2 ===");
+        {
+            io_connect_t c1, c2 = 0; int c2ok = 0;
+            if (create_session(1, &c1) == 0) {
+                if (p_IOServiceOpen(svc, mach_task_self(), g_opentype, &c2) == 0) { c2ok = 1; puts("[+] c2 open ok"); }
+                else puts("[-] c2 open fail");
+                sel3_async(c1, wake); drain_wake(wake, 50);
+                fill_cfg(0, 1920, 1080, 2, 1, 0, 0);
+                sel4_p("two", c1, 0, 0x1a0a0, getenv("AVE2_MS_PATCH"));
+                {
+                    uint8_t d5[0x1a0b0]; memset(d5, 0, sizeof(d5));
+                    memcpy(d5 + 0x30, stat_in, 0x1a0a0 - 0x30);
+                    *(uint32_t *)(d5 + 0x04) = 5;
+                    for (uint32_t sid = 1; sid <= 2; sid++) {
+                        *(uint32_t *)(d5 + 0x28) = sid;
+                        uint8_t o5[0x150]; size_t oz = 0x150; memset(o5, 0xAA, sizeof(o5));
+                        kern_return_t k5 = p_IOConnectCallStructMethod(c1, 5, d5, sizeof(d5), o5, &oz);
+                        printf("  [two SID=%u c2=%d] sel5 -> 0x%08x %s
+", sid, c2ok, k5, krname(k5));
+                    }
+                }
+                if (c2ok) p_IOServiceClose(c2);
+                destroy_close(c1);
+            }
+        }
     } else {
         /* default battery: enctype sweep + no-create ladder */
         printf("\n=== S1 create m1: enctype sweep (static) ===\n");
