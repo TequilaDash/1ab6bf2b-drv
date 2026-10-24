@@ -430,7 +430,9 @@ int main(void) {
             }
         }
         drain_wake(wake, 200);
-        { /* v50 sel5 layout */
+        { /* v54: optional settle window between sel4 and sel5 (async WorkThread registration) */
+          const char *dl = getenv("AVE2_P5_DELAY_MS");
+          if (dl && atoi(dl) > 0) { usleep((useconds_t)atoi(dl) * 1000); printf("    [%dms settle]\n", atoi(dl)); }
           uint8_t d5[0x1a0b0]; memset(d5,0,sizeof(d5));
           *(uint32_t *)(d5 + 0x04) = 5;
           *(uint32_t *)(d5 + 0x10) = 1;
