@@ -1040,8 +1040,7 @@ s5done:
                         *(uint32_t *)(d5 + 0x28) = sid;
                         uint8_t o5[0x150]; size_t oz = 0x150; memset(o5, 0xAA, sizeof(o5));
                         kern_return_t k5 = p_IOConnectCallStructMethod(c1, 5, d5, sizeof(d5), o5, &oz);
-                        printf("  [two SID=%u c2=%d] sel5 -> 0x%08x %s
-", sid, c2ok, k5, krname(k5));
+                        printf("  [two SID=%u c2=%d] sel5 -> 0x%08x %s\n", sid, c2ok, k5, krname(k5));
                     }
                 }
                 if (c2ok) p_IOServiceClose(c2);
