@@ -177,10 +177,10 @@ int main(void)
     if (hevc) {
         CFStringRef pl = kVTProfileLevel_HEVC_Main10_AutoLevel;
         if (multipass) {
-            VTSessionSetProperty(session, kVTCompressionPropertyKey_EnableMultiPassEncoding, kCFBooleanTrue);
+            VTSessionSetProperty(session, CFSTR("EnableMultiPassEncoding"), kCFBooleanTrue);
             int32_t npass = 2;
             CFNumberRef npr = CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt32Type, &npass);
-            VTSessionSetProperty(session, kVTCompressionPropertyKey_NumberOfPasses, npr);
+            VTSessionSetProperty(session, CFSTR("NumberOfPasses"), npr);
             CFRelease(npr);
         }
         VTSessionSetProperty(session, kVTCompressionPropertyKey_ProfileLevel, pl);
