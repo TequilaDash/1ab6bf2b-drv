@@ -121,7 +121,7 @@ int main(void)
 
     { const char *dl = getenv("AVE2_VT_DELAY");
       if (dl) { int sec = atoi(dl); if (sec > 0) { printf("[vt] delay %d s\n", sec); fflush(stdout); sleep(sec); } } }
-    printf("[vt] === ave2_vt_probe v1: H264 %dx%d, %d frames, hw required ===\n",
+    printf("[vt] === ave2_vt_probe v1: %dx%d, %d frames ===\n",
            VT_W, VT_H, VT_FRAMES);
 
     /* ---- encoder specification: hardware only ---- */
@@ -142,8 +142,11 @@ int main(void)
             : "(unprintable key)");
 
     /* ---- source pixel buffer attributes: 420v + IOSurface ---- */
-    int w = VT_W, h = VT_H;
+    int w = VT_W2, h = VT_H2;
     const char *mode = getenv("AVE2_VT_CODEC"); if (!mode) mode = "h264";
+    int VT_W2 = getenv("AVE2_VT_W") ? atoi(getenv("AVE2_VT_W")) : VT_W;
+    int VT_H2 = getenv("AVE2_VT_H") ? atoi(getenv("AVE2_VT_H")) : VT_H;
+
     int hevc = (strstr(mode, "hevc") != NULL);
     int multipass = (strstr(mode, "mp") != NULL);
     uint32_t fmt = hevc ? kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange : kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange;
@@ -165,7 +168,7 @@ int main(void)
     /* ---- 1) create ---- */
     VTCompressionSessionRef session = NULL;
     OSStatus st = VTCompressionSessionCreate(
-        kCFAllocatorDefault, VT_W, VT_H, hevc ? kCMVideoCodecType_HEVC : kCMVideoCodecType_H264,
+        kCFAllocatorDefault, VT_W2, VT_H2, hevc ? kCMVideoCodecType_HEVC : kCMVideoCodecType_H264,
         enc_spec, src_attrs, NULL, vt_output_cb, NULL, &session);
     printf("[vt] VTCompressionSessionCreate -> %d (%s)\n",
            (int)st, st == 0 ? "noErr" : "FAIL");
@@ -199,7 +202,7 @@ int main(void)
         if (pool)
             cvr = CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &pb);
         else
-            cvr = CVPixelBufferCreate(kCFAllocatorDefault, VT_W, VT_H, fmt,
+            cvr = CVPixelBufferCreate(kCFAllocatorDefault, VT_W2, VT_H2, fmt,
                                       src_attrs, &pb);
         if (cvr != kCVReturnSuccess || !pb) {
             printf("[frame %2ld] buffer create -> %d FAIL\n", i, (int)cvr);
