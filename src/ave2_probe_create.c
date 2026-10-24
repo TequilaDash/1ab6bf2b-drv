@@ -408,7 +408,7 @@ int main(void) {
             uint8_t z30[0x30]; memset(z30,0,sizeof(z30)); memcpy(z30, "904.76.7", 8);
             uint8_t o20[0x20]; size_t oz = 0x20;
             #define CALL0(sel) do { memset(out,0xAA,sizeof(out)); oz=0x20; \
-                kern_return_t _k = p_IOConnectCallMethod(c, sel, NULL, 0, out, &oz); \
+                kern_return_t _k = p_IOConnectCallMethod(c, sel, NULL, 0, NULL, 0, out, &oz, NULL, NULL); \
                 printf("    sel%d -> 0x%08x\n", sel, _k); } while(0)
             #define CALL6 do { memset(o20,0xAA,sizeof(o20)); oz=0x20; \
                 kern_return_t _k = p_IOConnectCallStructMethod(c, 6, z30, 0x30, o20, &oz); \
