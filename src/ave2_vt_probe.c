@@ -119,6 +119,8 @@ int main(void)
     int ended = 0;
     int rc_final = 42;
 
+    { const char *dl = getenv("AVE2_VT_DELAY");
+      if (dl) { int sec = atoi(dl); if (sec > 0) { printf("[vt] delay %d s\n", sec); fflush(stdout); sleep(sec); } } }
     printf("[vt] === ave2_vt_probe v1: H264 %dx%d, %d frames, hw required ===\n",
            VT_W, VT_H, VT_FRAMES);
 
