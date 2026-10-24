@@ -114,9 +114,6 @@ static void fill_gradient_420v(CVPixelBufferRef pb, long idx)
 int main(void)
 {
     setvbuf(stdout, NULL, _IONBF, 0);
-    { const char *d = getenv("AVE2_VT_DELAY");
-      if (d) { int sec = atoi(d); if (sec > 0) { printf("[vt] delay %ds for attach
-", sec); fflush(stdout); sleep(sec); } } }
     int submitted_ok = 0;
     int created = 0;
     int ended = 0;
