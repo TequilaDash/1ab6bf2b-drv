@@ -770,6 +770,15 @@ int main(void) {
             iosurf_id_fn isg = (iosurf_id_fn)dlsym(RTLD_DEFAULT, "IOSurfaceGetID");
             uint32_t SID = 0;
             if (isc != NULL && isg != NULL) {
+                /* v48 diag: direct IOSurfaceRoot open — separate entitlement from prop issues */
+                {
+                    io_service_t dsvc = p_IOServiceGetMatchingService(IODYN_MAIN_PORT, p_IOServiceMatching("IOSurfaceRoot"));
+                    io_connect_t dconn = 0;
+                    kern_return_t dk = (dsvc != 0) ? p_IOServiceOpen(dsvc, mach_task_self(), 0, &dconn) : -1;
+                    printf("    [surf] diag: IOSurfaceRoot svc=%u open=0x%08x conn=%u\n", dsvc, dk, dconn);
+                    if (dconn) p_IOServiceClose(dconn);
+                    if (dsvc) p_IOObjectRelease(dsvc);
+                }
                 /* v48: 旧代码用假签名 isc(NULL,4096,&bpr) 传空属性字典, IOSurfaceCreate 必返 NULL。
                    改用 dlsym 的 CF 函数造真字典: kIOSurfaceWidth/Height/BytesPerElement。 */
                 typedef void *(*cf_dict_mut_fn)(void *, long, const void *, const void *);
