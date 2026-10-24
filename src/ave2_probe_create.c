@@ -272,6 +272,9 @@ int main(void) {
     memset(anon, 0, sizeof(anon_in));
     mach_port_t wake = MACH_PORT_NULL;
     mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_RECEIVE, &wake);
+    { kern_return_t ir = mach_port_insert_right(mach_task_self(), wake, wake, MACH_MSG_TYPE_MAKE_SEND);
+      printf("[+] wake port %u send-right insert -> 0x%08x
+", wake, ir); }
     io_connect_t c;
     kern_return_t kr;
 
