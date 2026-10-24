@@ -140,6 +140,15 @@ static void fill_cfg(int which, int w, int h, int p6, int enctype, int slices, i
 }
 
 
+static kern_return_t sel3_sync(io_connect_t c, const char *tag) {
+    uint8_t din[0x38]; memset(din, 0, sizeof(din)); memcpy(din, "904.76.7", 8);
+    uint8_t o[0x20]; size_t oz = 0x20; memset(o, 0xAA, sizeof(o));
+    kern_return_t kr = p_IOConnectCallStructMethod(c, 3, din, sizeof(din), o, &oz);
+    printf("    [%s] sel3 sync -> 0x%08x %s oz=%zu
+", tag, kr, krname(kr), oz);
+    return kr;
+}
+
 static void sel3_async(io_connect_t c, mach_port_t wake) {
     uint8_t din[0x40];
     memset(din, 0, sizeof(din));
@@ -1073,6 +1082,27 @@ s5done:
                 destroy_close(c);
             }
             unsetenv("AVE2_CPATCH");
+        }
+    } else if (test != NULL && strcmp(test, "s5s3") == 0) {
+        const char *ms = getenv("AVE2_MS_PATCH");
+        puts("=== s5s3: sel3 sync -> sel4 -> sel5 ===");
+        if (create_session(1, &c) == 0) {
+            sel3_sync(c, "s3");
+            fill_cfg(0, 1920, 1080, 2, 1, 0, 0);
+            sel4_p("s3pre", c, 0, 0x1a0a0, ms);
+            {
+                uint8_t d5[0x1a0b0]; memset(d5, 0, sizeof(d5));
+                memcpy(d5 + 0x30, stat_in, 0x1a0a0 - 0x30);
+                *(uint32_t *)(d5 + 0x04) = 5;
+                for (uint32_t sid = 1; sid <= 2; sid++) {
+                    *(uint32_t *)(d5 + 0x28) = sid;
+                    uint8_t o5[0x150]; size_t oz = 0x150; memset(o5, 0xAA, sizeof(o5));
+                    kern_return_t k5 = p_IOConnectCallStructMethod(c, 5, d5, sizeof(d5), o5, &oz);
+                    printf("  [s3 SID=%u] sel5 -> 0x%08x %s
+", sid, k5, krname(k5));
+                }
+            }
+            destroy_close(c);
         }
     } else {
         /* default battery: enctype sweep + no-create ladder */
