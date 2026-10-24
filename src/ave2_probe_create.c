@@ -431,6 +431,16 @@ int main(void) {
             }
         }
         drain_wake(wake, 200);
+        { /* v56: IOSurface-ID probe — did sel4/WorkThread allocate new surfaces? */
+          const char *ip = getenv("AVE2_ID_PROBE");
+          if (ip && atoi(ip)) {
+            uint32_t a = surf_make_id();
+            const char *dl = getenv("AVE2_P5_DELAY_MS");
+            if (dl && atoi(dl) > 0) usleep((useconds_t)atoi(dl) * 1000);
+            uint32_t b = surf_make_id();
+            printf("    [idprobe] before=%u after=%u delta=%d\n", a, b, (int)b - (int)a);
+          }
+        }
         { /* v54: optional settle window between sel4 and sel5 (async WorkThread registration) */
           const char *dl = getenv("AVE2_P5_DELAY_MS");
           if (dl && atoi(dl) > 0) { usleep((useconds_t)atoi(dl) * 1000); printf("    [%dms settle]\n", atoi(dl)); }
