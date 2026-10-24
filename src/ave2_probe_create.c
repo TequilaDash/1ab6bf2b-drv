@@ -385,6 +385,64 @@ int main(void) {
         sel4_p("st", c, 0, 0x1a0a0, patch);
         state_walk(c);
         destroy_close(c);
+    } else if (test != NULL && strcmp(test, "pwr5") == 0) {
+        /* v53: does a pre-sel5 scalar call (sel11/12/13/6) trigger the buffer-set
+           registration so sel5's IOSurfaceRoot lookup (key=cookie) can hit? */
+        const char *patch = getenv("AVE2_MS_PATCH");
+        int dms = getenv("AVE2_DRAIN_MS") ? atoi(getenv("AVE2_DRAIN_MS")) : 500;
+        int seq = getenv("AVE2_PWR_SEQ") ? atoi(getenv("AVE2_PWR_SEQ")) : 0;
+        printf("=== pwr5 seq %d drain %dms: create->sel3->sel4->[seq]->sel5 ===\n", seq, dms);
+        if (create_session(1, &c) != 0) { printf("[-] create\n"); return 42; }
+        {
+            uint8_t din[0x40]; memset(din,0,sizeof(din)); memcpy(din, "904.76.7", 8);
+            iodyn_async_ref_t aref; memset(aref,0,sizeof(aref)); aref[0] = 1;
+            memset(out, 0xAA, sizeof(out)); size_t o = 0x20;
+            kern_return_t kr = p_IOConnectCallAsyncStructMethod(c, 3, wake, aref, 8, din, 0x38, out, &o);
+            printf("    sel3 async -> 0x%08x\n", kr);
+        }
+        drain_wake(wake, dms);
+        fill_cfg(0, 1920, 1080, 2, 1, 0, 0);
+        sel4_p("st", c, 0, 0x1a0a0, patch);
+        /* scalar interlude sequences */
+        {
+            uint8_t z30[0x30]; memset(z30,0,sizeof(z30)); memcpy(z30, "904.76.7", 8);
+            uint8_t o20[0x20]; size_t oz = 0x20;
+            #define CALL0(sel) do { memset(out,0xAA,sizeof(out)); oz=0x20; \
+                kern_return_t _k = p_IOConnectCallMethod(c, sel, NULL, 0, out, &oz); \
+                printf("    sel%d -> 0x%08x\n", sel, _k); } while(0)
+            #define CALL6 do { memset(o20,0xAA,sizeof(o20)); oz=0x20; \
+                kern_return_t _k = p_IOConnectCallStructMethod(c, 6, z30, 0x30, o20, &oz); \
+                printf("    sel6 -> 0x%08x osz=%zu\n", _k, oz); } while(0)
+            switch (seq) {
+            case 1:  CALL0(12); break;
+            case 2:  CALL0(12); CALL0(12); break;
+            case 3:  CALL0(13); break;
+            case 4:  CALL0(13); CALL0(13); break;
+            case 5:  CALL0(12); CALL0(13); break;
+            case 6:  CALL0(13); CALL0(12); break;
+            case 7:  CALL6; break;
+            case 8:  CALL6; CALL0(12); break;
+            case 9:  CALL0(11); break;
+            case 10: CALL0(11); CALL0(12); break;
+            case 11: CALL0(12); CALL6; break;
+            case 12: CALL0(12); CALL0(13); CALL6; break;
+            default: break;
+            }
+        }
+        drain_wake(wake, 200);
+        { /* v50 sel5 layout */
+          uint8_t d5[0x1a0b0]; memset(d5,0,sizeof(d5));
+          *(uint32_t *)(d5 + 0x04) = 5;
+          *(uint32_t *)(d5 + 0x10) = 1;
+          const char *sv5 = getenv("AVE2_S5SID");
+          *(uint32_t *)(d5 + 0x28) = sv5 ? (uint32_t)strtoul(sv5,0,0) : 1;
+          memcpy(d5 + 0x30, stat_in, 0x1a080);
+          uint8_t o5[0x150]; size_t o5z = 0x150; memset(o5, 0xAA, sizeof(o5));
+          kern_return_t k5 = p_IOConnectCallStructMethod(c, 5, d5, sizeof(d5), o5, &o5z);
+          printf("    sel5 -> 0x%08x %s osz=%zu\n", k5, krname(k5), o5z);
+        }
+        destroy_close(c);
+        printf("=== pwr5 done ===\n");
     } else if (test != NULL && strcmp(test, "s5scan") == 0) {
         /* v37: sel5 input single-offset scan WITH sel3 async in front.
            Baseline (clean configure patch) => sel5 = 0xe0000001 (-1015).
