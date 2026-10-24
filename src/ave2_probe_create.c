@@ -999,8 +999,7 @@ s5done:
         printf("=== sid5 done ===\n");
     } else if (test != NULL && strcmp(test, "s5x2") == 0) {
         /* same-session 3x sel5: is UC+0xe0 self-bootstrapping or deadlocked */
-        printf("=== s5x2: 3x sel5 same session ===
-");
+        puts("=== s5x2: 3x sel5 same session ===");
         if (create_session(1, &c) == 0) {
             { uint8_t din[0x40]; memset(din,0,sizeof(din)); memcpy(din,"904.76.7",8);
               iodyn_async_ref_t aref; memset(aref,0,sizeof(aref)); aref[0]=1;
@@ -1018,8 +1017,7 @@ s5done:
                 kern_return_t k5 = p_IOConnectCallStructMethod(c, 5, d5, sizeof(d5), o5, &o5z);
                 printf("  [x2 r%d] sel5 -> 0x%08x %s osz=%zu out0:", r, k5, krname(k5), o5z);
                 for (size_t q = 0; q < 16 && q < o5z; q++) printf("%02x", o5[q]);
-                printf("
-");
+                puts("");
             }
             destroy_close(c);
         }
