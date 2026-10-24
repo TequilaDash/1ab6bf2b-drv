@@ -1047,6 +1047,33 @@ s5done:
                 destroy_close(c1);
             }
         }
+    } else if (test != NULL && strcmp(test, "s5n") == 0) {
+        /* create-in u32=2 sweep + sel5 SID=1 with CORRECT header layout (struct at +0x30) */
+        const char *ms = getenv("AVE2_MS_PATCH");
+        puts("=== s5n: create-in =2 sweep, sel5 SID=1, header layout ===");
+        {
+            for (unsigned o = 0x20; o <= 0x6f0; o += 4) {
+                char spec[64]; snprintf(spec, sizeof(spec), "0x%lx:%u", (unsigned long)o, 2u);
+                setenv("AVE2_CPATCH", spec, 1);
+                if (create_session(1, &c) != 0) continue;
+                { uint8_t din[0x40]; memset(din,0,sizeof(din)); memcpy(din,"904.76.7",8);
+                  iodyn_async_ref_t aref; memset(aref,0,sizeof(aref)); aref[0]=1;
+                  memset(out,0xAA,sizeof(out)); size_t o2=0x20;
+                  p_IOConnectCallAsyncStructMethod(c,3,wake,aref,8,din,0x38,out,&o2); }
+                drain_wake(wake, 50);
+                fill_cfg(0,1920,1080,2,1,0,0);
+                sel4_p("st", c, 0, 0x1a0a0, ms);
+                { uint8_t d5[0x1a0b0]; memset(d5,0,sizeof(d5));
+                  memcpy(d5 + 0x30, stat_in, 0x1a0a0 - 0x30);
+                  *(uint32_t *)(d5 + 0x04) = 5;
+                  *(uint32_t *)(d5 + 0x28) = 1;
+                  uint8_t o5[0x150]; size_t o5z=0x150; memset(o5,0xAA,sizeof(o5));
+                  kern_return_t k5 = p_IOConnectCallStructMethod(c,5,d5,sizeof(d5),o5,&o5z);
+                  if (k5 != 0xe0000001u) printf("    [HIT create+0x%x=2] sel5 -> 0x%08x %s", o, k5, krname(k5)); }
+                destroy_close(c);
+            }
+            unsetenv("AVE2_CPATCH");
+        }
     } else {
         /* default battery: enctype sweep + no-create ladder */
         printf("\n=== S1 create m1: enctype sweep (static) ===\n");
