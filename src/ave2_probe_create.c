@@ -144,8 +144,7 @@ static kern_return_t sel3_sync(io_connect_t c, const char *tag) {
     uint8_t din[0x38]; memset(din, 0, sizeof(din)); memcpy(din, "904.76.7", 8);
     uint8_t o[0x20]; size_t oz = 0x20; memset(o, 0xAA, sizeof(o));
     kern_return_t kr = p_IOConnectCallStructMethod(c, 3, din, sizeof(din), o, &oz);
-    printf("    [%s] sel3 sync -> 0x%08x %s oz=%zu
-", tag, kr, krname(kr), oz);
+    printf("    [%s] sel3 sync -> 0x%08x %s oz=%zu\n", tag, kr, krname(kr), oz);
     return kr;
 }
 
@@ -1098,8 +1097,7 @@ s5done:
                     *(uint32_t *)(d5 + 0x28) = sid;
                     uint8_t o5[0x150]; size_t oz = 0x150; memset(o5, 0xAA, sizeof(o5));
                     kern_return_t k5 = p_IOConnectCallStructMethod(c, 5, d5, sizeof(d5), o5, &oz);
-                    printf("  [s3 SID=%u] sel5 -> 0x%08x %s
-", sid, k5, krname(k5));
+                    printf("  [s3 SID=%u] sel5 -> 0x%08x %s\n", sid, k5, krname(k5));
                 }
             }
             destroy_close(c);
