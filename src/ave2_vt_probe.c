@@ -142,10 +142,11 @@ int main(void)
             : "(unprintable key)");
 
     /* ---- source pixel buffer attributes: 420v + IOSurface ---- */
-    int w = VT_W2, h = VT_H2;
+    int w = VT_W, h = VT_H;
     const char *mode = getenv("AVE2_VT_CODEC"); if (!mode) mode = "h264";
     int VT_W2 = getenv("AVE2_VT_W") ? atoi(getenv("AVE2_VT_W")) : VT_W;
     int VT_H2 = getenv("AVE2_VT_H") ? atoi(getenv("AVE2_VT_H")) : VT_H;
+    w = VT_W2; h = VT_H2;
 
     int hevc = (strstr(mode, "hevc") != NULL);
     int multipass = (strstr(mode, "mp") != NULL);
