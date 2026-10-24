@@ -855,8 +855,12 @@ int main(void) {
                     drain_wake(wake, 50);
                     fill_cfg(0,1920,1080,2,1,0,0);
                     sel4_p("st", c, 0, 0x1a0a0, ms);
-                    { uint8_t d5[0x1a0b0]; memset(d5,0,sizeof(d5)); memcpy(d5,stat_in,0x1a0a0);
-                      *(uint32_t *)(d5 + 0x28) = SID;
+                    /* v50: v47-定案布局 = 0x30 命令头 + 载荷 @+0x30（旧布局结构体@+0 必 -1015） */
+                    { uint8_t d5[0x1a0b0]; memset(d5,0,sizeof(d5));
+                      *(uint32_t *)(d5 + 0x04) = 5;          /* eUCCmd = AVE_UCCmd_Start */
+                      *(uint32_t *)(d5 + 0x10) = 1;          /* iDataCnt */
+                      *(uint32_t *)(d5 + 0x28) = SID;        /* iUCInfoSID = real IOSurface id */
+                      memcpy(d5 + 0x30, stat_in, 0x1a080);   /* Prepare payload */
                       uint8_t o5[0x150]; size_t o5z=0x150; memset(o5,0xAA,sizeof(o5));
                       kern_return_t k5 = p_IOConnectCallStructMethod(c,5,d5,sizeof(d5),o5,&o5z);
                       printf("    sel5 -> 0x%08x %s osz=%zu\n", k5, krname(k5), o5z); }
@@ -875,8 +879,12 @@ int main(void) {
                     drain_wake(wake, 50);
                     fill_cfg(0,1920,1080,2,1,0,0);
                     sel4_p("st", c, 0, 0x1a0a0, ms);
-                    { uint8_t d5[0x1a0b0]; memset(d5,0,sizeof(d5)); memcpy(d5,stat_in,0x1a0a0);
+                    /* v50: same fixed layout as surf(a) */
+                    { uint8_t d5[0x1a0b0]; memset(d5,0,sizeof(d5));
+                      *(uint32_t *)(d5 + 0x04) = 5;
+                      *(uint32_t *)(d5 + 0x10) = 1;
                       *(uint32_t *)(d5 + 0x28) = SID;
+                      memcpy(d5 + 0x30, stat_in, 0x1a080);
                       uint8_t o5[0x150]; size_t o5z=0x150; memset(o5,0xAA,sizeof(o5));
                       kern_return_t k5 = p_IOConnectCallStructMethod(c,5,d5,sizeof(d5),o5,&o5z);
                       if (k5 != 0xe0000001u) printf("    [HIT create+0x%x=%u] sel5 -> 0x%08x %s\n", o, SID, k5, krname(k5)); }
