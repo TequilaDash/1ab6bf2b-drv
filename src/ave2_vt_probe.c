@@ -119,6 +119,8 @@ int main(void)
     int ended = 0;
     int rc_final = 42;
 
+    { const char *dl = getenv("AVE2_VT_DELAY");
+      if (dl) { int sec = atoi(dl); if (sec > 0) { printf("[vt] delay %d s\n", sec); fflush(stdout); sleep(sec); } } }
     printf("[vt] === ave2_vt_probe v1: H264 %dx%d, %d frames, hw required ===\n",
            VT_W, VT_H, VT_FRAMES);
 
@@ -141,7 +143,7 @@ int main(void)
 
     /* ---- source pixel buffer attributes: 420v + IOSurface ---- */
     int w = VT_W, h = VT_H;
-    uint32_t fmt = kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange;
+    uint32_t fmt = kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange;
     CFNumberRef fmtnum = CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &fmt);
     CFNumberRef wnum   = CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &w);
     CFNumberRef hnum   = CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &h);
@@ -160,7 +162,7 @@ int main(void)
     /* ---- 1) create ---- */
     VTCompressionSessionRef session = NULL;
     OSStatus st = VTCompressionSessionCreate(
-        kCFAllocatorDefault, VT_W, VT_H, kCMVideoCodecType_HEVC,
+        kCFAllocatorDefault, VT_W, VT_H, kCMVideoCodecType_H264,
         enc_spec, src_attrs, NULL, vt_output_cb, NULL, &session);
     printf("[vt] VTCompressionSessionCreate -> %d (%s)\n",
            (int)st, st == 0 ? "noErr" : "FAIL");
