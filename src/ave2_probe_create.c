@@ -997,6 +997,32 @@ int main(void) {
         }
 s5done:
         printf("=== sid5 done ===\n");
+    } else if (test != NULL && strcmp(test, "s5x2") == 0) {
+        /* same-session 3x sel5: is UC+0xe0 self-bootstrapping or deadlocked */
+        printf("=== s5x2: 3x sel5 same session ===
+");
+        if (create_session(1, &c) == 0) {
+            { uint8_t din[0x40]; memset(din,0,sizeof(din)); memcpy(din,"904.76.7",8);
+              iodyn_async_ref_t aref; memset(aref,0,sizeof(aref)); aref[0]=1;
+              memset(out,0xAA,sizeof(out)); size_t o2=0x20;
+              p_IOConnectCallAsyncStructMethod(c,3,wake,aref,8,din,0x38,out,&o2); }
+            drain_wake(wake, 50);
+            fill_cfg(0, 1920, 1080, 2, 1, 0, 0);
+            sel4_p("x2pre", c, 0, 0x1a0a0, getenv("AVE2_MS_PATCH"));
+            uint8_t d5[0x1a0b0]; memset(d5, 0, sizeof(d5));
+            memcpy(d5 + 0x30, stat_in, 0x1a0a0 - 0x30);
+            *(uint32_t *)(d5 + 0x04) = 5;
+            *(uint32_t *)(d5 + 0x28) = 1;
+            for (int r = 0; r < 3; r++) {
+                uint8_t o5[0x150]; size_t o5z = 0x150; memset(o5, 0xAA, sizeof(o5));
+                kern_return_t k5 = p_IOConnectCallStructMethod(c, 5, d5, sizeof(d5), o5, &o5z);
+                printf("  [x2 r%d] sel5 -> 0x%08x %s osz=%zu out0:", r, k5, krname(k5), o5z);
+                for (size_t q = 0; q < 16 && q < o5z; q++) printf("%02x", o5[q]);
+                printf("
+");
+            }
+            destroy_close(c);
+        }
     } else {
         /* default battery: enctype sweep + no-create ladder */
         printf("\n=== S1 create m1: enctype sweep (static) ===\n");
