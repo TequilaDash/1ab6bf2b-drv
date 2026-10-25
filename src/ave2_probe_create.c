@@ -166,7 +166,7 @@ static void sel3_async(io_connect_t c, mach_port_t wake) {
     {
         uint8_t mbuf[0x400];
         mach_msg_header_t *hdr = (mach_msg_header_t *)mbuf;
-        kern_return_t km = mach_msg(hdr, 0x02 /* MACH_RCV_MSG */, 0, sizeof(mbuf), wake,
+        kern_return_t km = mach_msg(hdr, 0x02 | 0x08 /* RCV_MSG|RCV_TIMEOUT */, 0, sizeof(mbuf), wake,
                                     300, 0);
         printf("    sel3 rcv -> 0x%08x msid=%d\n", km, (int)hdr->msgh_id);
         if (km == MACH_MSG_SUCCESS) {
