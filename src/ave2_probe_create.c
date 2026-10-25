@@ -287,6 +287,8 @@ int main(void) {
     const char *e = getenv("AVE2_LOGCNT");
     if (e != NULL && e[0]) counter = strtoull(e, NULL, 0);
     g_opentype = getenv("AVE2_OPENTYPE") ? atoi(getenv("AVE2_OPENTYPE")) : 1;
+    { const char *sl = getenv("AVE2_SLEEP"); /* w65: pre-battery sleep (ms) for frida attach window */
+      if (sl != NULL && sl[0]) { int ms = atoi(sl); printf("[sleep] %d ms\n", ms); fflush(stdout); usleep(ms * 1000); } }
     void *anon = mmap(NULL, sizeof(anon_in), PROT_READ | PROT_WRITE,
                       MAP_ANON | MAP_PRIVATE, -1, 0);
     if (anon == MAP_FAILED) { printf("[-] mmap\n"); return 4; }
