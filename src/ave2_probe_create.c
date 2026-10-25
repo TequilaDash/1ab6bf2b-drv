@@ -271,17 +271,14 @@ int main(void) {
             while ((o = p_IOIteratorNext(it)) != MACH_PORT_NULL && n < 16) {
                 char cls[128] = {0};
                 p_IOObjectGetClass(o, cls);
-                printf("[enum] AVE2 service[%d] handle=%#x class=%s
-", n, (unsigned)o, cls);
+                printf("[enum] AVE2 service[%d] handle=%#x class=%s\n", n, (unsigned)o, cls);
                 p_IOObjectRelease(o);
                 n++;
             }
-            printf("[enum] total AppleAVE2Driver instances: %d
-", n);
+            printf("[enum] total AppleAVE2Driver instances: %d\n", n);
             p_IOObjectRelease(it);
         } else {
-            printf("[enum] GetMatchingServices failed
-");
+            printf("[enum] GetMatchingServices failed\n");
         }
     }
     if (!svc) { printf("[-] no service\n"); return 1; }
