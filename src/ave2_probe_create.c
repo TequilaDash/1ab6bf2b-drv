@@ -446,15 +446,23 @@ int main(void) {
         { /* v54: optional settle window between sel4 and sel5 (async WorkThread registration) */
           const char *dl = getenv("AVE2_P5_DELAY_MS");
           if (dl && atoi(dl) > 0) { usleep((useconds_t)atoi(dl) * 1000); printf("    [%dms settle]\n", atoi(dl)); }
-          uint8_t d5[0x1a0b0]; memset(d5,0,sizeof(d5));
-          *(uint32_t *)(d5 + 0x04) = 5;
-          *(uint32_t *)(d5 + 0x10) = 1;
-          const char *sv5 = getenv("AVE2_S5SID");
-          *(uint32_t *)(d5 + 0x28) = sv5 ? (uint32_t)strtoul(sv5,0,0) : 1;
-          memcpy(d5 + 0x30, stat_in, 0x1a080);
-          uint8_t o5[0x150]; size_t o5z = 0x150; memset(o5, 0xAA, sizeof(o5));
-          kern_return_t k5 = p_IOConnectCallStructMethod(c, 5, d5, sizeof(d5), o5, &o5z);
-          printf("    sel5 -> 0x%08x %s osz=%zu\n", k5, krname(k5), o5z);
+          /* w37: repeat sel5 N times on the SAME UC — lazy self-heal insert may
+             seed the table entry on call 1; call 2+ should hit a different gate */
+          int s5n = getenv("AVE2_S5_N") ? atoi(getenv("AVE2_S5_N")) : 1;
+          int s5gap = getenv("AVE2_S5_GAP_MS") ? atoi(getenv("AVE2_S5_GAP_MS")) : 0;
+          for (int rep = 0; rep < s5n; rep++) {
+            if (rep && s5gap > 0) usleep((useconds_t)s5gap * 1000);
+            uint8_t d5[0x1a0b0]; memset(d5,0,sizeof(d5));
+            *(uint32_t *)(d5 + 0x04) = 5;
+            *(uint32_t *)(d5 + 0x10) = 1;
+            const char *sv5 = getenv("AVE2_S5SID");
+            *(uint32_t *)(d5 + 0x28) = sv5 ? (uint32_t)strtoul(sv5,0,0) : 1;
+            memcpy(d5 + 0x30, stat_in, 0x1a080);
+            uint8_t o5[0x150]; size_t o5z = 0x150; memset(o5, 0xAA, sizeof(o5));
+            kern_return_t k5 = p_IOConnectCallStructMethod(c, 5, d5, sizeof(d5), o5, &o5z);
+            printf("    sel5[%d/%d] -> 0x%08x %s osz=%zu out0:%02x%02x%02x%02x\n", rep + 1, s5n,
+                   k5, krname(k5), o5z, o5[0], o5[1], o5[2], o5[3]);
+          }
         }
         destroy_close(c);
         printf("=== pwr5 done ===\n");
