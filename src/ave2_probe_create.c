@@ -1068,8 +1068,9 @@ int main(void) {
             uint8_t sub[0x1a0a0]; memset(sub, 0, sizeof(sub));
             memcpy(sub, stat_in, 0x1a0a0);
             if (patch) apply_patch(sub, patch);
-            if (h5sid) { *(uint32_t *)(sub + 0x28) = h5sid;   /* payload-relative iUCInfoSID (struct@+0x10 -> abs +0x38) */
-                         *(uint32_t *)(d5 + 0x38) = h5sid; }   /* absolute too in case pIn=input */
+            if (h5sid) { *(uint32_t *)(sub + 0x2c) = 5;         /* w65-N: kernel pIn = input+0x28 → eUCCmd@+0x2c, iUCInfoSID@+0x50 */
+                         *(uint32_t *)(sub + 0x50) = h5sid;
+                         *(uint32_t *)(sub + 0x28) = h5sid; }   /* legacy guesses kept */
             if (casei == 7) {
                 /* LRB 回绕配方：flags=1(s=2) B=C=0x10000 D=E=4 => X=Y=0x10000, F3 回绕 0 */
                 *(uint32_t *)(sub + 0x254) = 1;
