@@ -1139,6 +1139,66 @@ int main(void) {
         }
 s5done:
         printf("=== sid5 done ===\n");
+    } else if (test != NULL && strcmp(test, "sweep610") == 0) {
+        /* w65-F: map selectors 6..10 — one of them registers the UCInfo surface (Start:2407 needs it).
+           Real IOSurface (SURF_* knobs) + SID variants per selector. */
+        {
+            typedef void *(*iosurf_create_fn)(void *);
+            typedef uint32_t (*iosurf_id_fn)(void *);
+            iosurf_create_fn isc = (iosurf_create_fn)dlsym(RTLD_DEFAULT, "IOSurfaceCreate");
+            iosurf_id_fn isg = (iosurf_id_fn)dlsym(RTLD_DEFAULT, "IOSurfaceGetID");
+            uint32_t SID = 0;
+            if (isc && isg) {
+                typedef void *(*cf_dict_mut_fn)(void *, long, const void *, const void *);
+                typedef void (*cf_setval_fn)(void *, const void *, const void *);
+                typedef void *(*cf_num_fn)(void *, long, const void *);
+                cf_dict_mut_fn cdm = (cf_dict_mut_fn)dlsym(RTLD_DEFAULT, "CFDictionaryCreateMutable");
+                cf_setval_fn csv = (cf_setval_fn)dlsym(RTLD_DEFAULT, "CFDictionarySetValue");
+                cf_num_fn cnum = (cf_num_fn)dlsym(RTLD_DEFAULT, "CFNumberCreate");
+                const void *str_cb = dlsym(RTLD_DEFAULT, "kCFCopyStringDictionaryKeyCallBacks");
+                const void *val_cb = dlsym(RTLD_DEFAULT, "kCFTypeDictionaryValueCallBacks");
+                const void **kw = (const void **)dlsym(RTLD_DEFAULT, "kIOSurfaceWidth");
+                const void **kh = (const void **)dlsym(RTLD_DEFAULT, "kIOSurfaceHeight");
+                const void **kbpe = (const void **)dlsym(RTLD_DEFAULT, "kIOSurfaceBytesPerElement");
+                const void **kg = (const void **)dlsym(RTLD_DEFAULT, "kIOSurfaceIsGlobal");
+                if (cdm && csv && cnum && str_cb && val_cb && kw && kh && kbpe) {
+                    void *dict = cdm(NULL, 0, str_cb, val_cb);
+                    long long w = 1920, h = 1080, bpe = 1, one = 1;
+                    void *nw = cnum(NULL, 4, &w), *nh = cnum(NULL, 4, &h), *nb = cnum(NULL, 4, &bpe);
+                    if (kg) { void *ng = cnum(NULL, 4, &one); if (ng) csv(dict, *kg, ng); }
+                    if (dict && nw && nh && nb) {
+                        csv(dict, *kw, nw); csv(dict, *kh, nh); csv(dict, *kbpe, nb);
+                        void *surf = isc(dict);
+                        if (surf) { SID = isg(surf); printf("[sweep610] surface SID=%u\\n", SID); }
+                    }
+                }
+            }
+            const char *patch = getenv("AVE2_MS_PATCH");
+            int sid_mode = getenv("AVE2_610_SID") ? atoi(getenv("AVE2_610_SID")) : 1; /* 1=SID 2=1 3=both */
+            printf("=== sweep610: sel6..sel10 x sidmode%d ===\\n", sid_mode);
+            uint32_t sids[3] = { SID, 1, SID };
+            int nsid = sid_mode == 2 ? 1 : (sid_mode == 1 ? 1 : 2);
+            for (int sel = 6; sel <= 10; sel++) {
+                for (int si = (sid_mode == 1 ? 0 : 1); si < (sid_mode == 1 ? 1 : (sid_mode == 2 ? 2 : 3)); si++) {
+                    if (create_session(1, &c) != 0) break;
+                    { uint8_t din[0x40]; memset(din,0,sizeof(din)); memcpy(din,"904.76.7",8);
+                      iodyn_async_ref_t aref; memset(aref,0,sizeof(aref)); aref[0]=1;
+                      memset(out,0xAA,sizeof(out)); size_t o2=0x20;
+                      p_IOConnectCallAsyncStructMethod(c,3,wake,aref,8,din,0x38,out,&o2); }
+                    drain_wake(wake, 50);
+                    fill_cfg(0, 1920, 1080, 2, 1, 0, 0);
+                    sel4_p("s610pre", c, 0, 0x1a0a0, patch);
+                    { uint8_t d[0x1a0b0]; memset(d, 0, sizeof(d));
+                      memcpy(d + 0x10, stat_in, 0x1a0a0 - 0x10);
+                      *(uint32_t *)(d + 0x04) = sel;
+                      *(uint32_t *)(d + 0x28) = sids[si == 0 ? 0 : (si == 1 ? 1 : 2)];
+                      uint8_t o[0x150]; size_t oz = 0x150; memset(o, 0xAA, sizeof(o));
+                      kern_return_t k = p_IOConnectCallStructMethod(c, sel, d, sizeof(d), o, &oz);
+                      printf("  [sel%d sid=%u] -> 0x%08x %s osz=%zu\\n", sel, sids[si == 0 ? 0 : (si == 1 ? 1 : 2)], k, krname(k), oz); }
+                    destroy_close(c);
+                }
+            }
+        }
     } else if (test != NULL && strcmp(test, "s5x2") == 0) {
         /* same-session 3x sel5: is UC+0xe0 self-bootstrapping or deadlocked */
         puts("=== s5x2: 3x sel5 same session ===");
