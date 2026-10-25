@@ -477,8 +477,7 @@ int main(void) {
             *(uint32_t *)(d5 + 0x04) = 5;
             *(uint32_t *)(d5 + 0x10) = 1;
             const char *sv5 = getenv("AVE2_S5SID"); uint32_t sid_auto = (sv5 && strcmp(sv5,"auto")==0) ? g_create_sid : (sv5 ? (uint32_t)strtoul(sv5,0,0) : 1);
-            *(uint32_t *)(d5 + 0x28) = sid_auto; printf("    [sid] using 0x%x
-", sid_auto);
+            *(uint32_t *)(d5 + 0x28) = sid_auto; printf("    [sid] using 0x%x\n", sid_auto);
             memcpy(d5 + 0x30, stat_in, 0x1a080);
             uint8_t o5[0x150]; size_t o5z = 0x150; memset(o5, 0xAA, sizeof(o5));
             kern_return_t k5 = p_IOConnectCallStructMethod(c, 5, d5, sizeof(d5), o5, &o5z);
