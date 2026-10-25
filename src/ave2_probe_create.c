@@ -952,6 +952,13 @@ int main(void) {
                     void *nw = cnum(NULL, 4, &w);
                     void *nh = cnum(NULL, 4, &h);
                     void *nb = cnum(NULL, 4, &bpe);
+                    /* w65-E: global + pixel-format keys (kernel-side lookup needs global registration) */
+                    int surf_global = getenv("AVE2_SURF_GLOBAL") ? atoi(getenv("AVE2_SURF_GLOBAL")) : 0;
+                    long long pfcc = getenv("AVE2_SURF_PF") ? strtoll(getenv("AVE2_SURF_PF"), NULL, 0) : 0; /* 4cc int */
+                    const void **kg = (const void **)dlsym(RTLD_DEFAULT, "kIOSurfaceIsGlobal");
+                    const void **kpf = (const void **)dlsym(RTLD_DEFAULT, "kIOSurfacePixelFormat");
+                    if (dict && surf_global && kg) { long long one = 1; void *ng = cnum(NULL, 4, &one); if (ng) csv(dict, *kg, ng); }
+                    if (dict && pfcc && kpf) { void *np = cnum(NULL, 4, &pfcc); if (np) csv(dict, *kpf, np); }
                     if (dict && nw && nh && nb) {
                         csv(dict, *kw, nw); csv(dict, *kh, nh); csv(dict, *kbpe, nb);
                         void *surf = isc(dict);
