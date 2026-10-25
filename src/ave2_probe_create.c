@@ -262,6 +262,28 @@ int main(void) {
     if (iodyn_init() != 0) { printf("[-] iodyn\n"); return 3; }
     void *m = p_IOServiceMatching("AppleAVE2Driver");
     svc = p_IOServiceGetMatchingService(IODYN_MAIN_PORT, m);
+    { /* w45: enumerate ALL matching AppleAVE2Driver service instances + class names */
+        io_iterator_t it = MACH_PORT_NULL;
+        void *m2 = p_IOServiceMatching("AppleAVE2Driver");
+        if (m2 && p_IOServiceGetMatchingServices(IODYN_MAIN_PORT, m2, &it) == 0 && it != MACH_PORT_NULL) {
+            int n = 0;
+            io_object_t o;
+            while ((o = p_IOIteratorNext(it)) != MACH_PORT_NULL && n < 16) {
+                char cls[128] = {0};
+                p_IOObjectGetClass(o, cls);
+                printf("[enum] AVE2 service[%d] handle=%#x class=%s
+", n, (unsigned)o, cls);
+                p_IOObjectRelease(o);
+                n++;
+            }
+            printf("[enum] total AppleAVE2Driver instances: %d
+", n);
+            p_IOObjectRelease(it);
+        } else {
+            printf("[enum] GetMatchingServices failed
+");
+        }
+    }
     if (!svc) { printf("[-] no service\n"); return 1; }
     const char *e = getenv("AVE2_LOGCNT");
     if (e != NULL && e[0]) counter = strtoull(e, NULL, 0);

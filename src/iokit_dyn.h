@@ -39,6 +39,9 @@ typedef io_service_t  (*fp_IOServiceGetMatchingService)(mach_port_t, void *);
 typedef kern_return_t (*fp_IOServiceOpen)(io_service_t, task_t, uint32_t, io_connect_t *);
 typedef kern_return_t (*fp_IOServiceClose)(io_connect_t);
 typedef kern_return_t (*fp_IOObjectRelease)(io_object_t);
+typedef kern_return_t (*fp_IOServiceGetMatchingServices)(mach_port_t, void *, io_iterator_t *);
+typedef io_object_t    (*fp_IOIteratorNext)(io_iterator_t);
+typedef kern_return_t (*fp_IOObjectGetClass)(io_object_t, char *);
 typedef kern_return_t (*fp_IOConnectCallStructMethod)(io_connect_t, uint32_t,
                                                       const void *, size_t,
                                                       void *, size_t *);
