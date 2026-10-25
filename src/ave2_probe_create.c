@@ -652,6 +652,8 @@ int main(void) {
               *(uint32_t *)(d5 + 0x04) = 5;             /* eUCCmd = AVE_UCCmd_Start */
               *(uint32_t *)(d5 + 0x10) = 1;             /* iDataCnt */
               *(uint32_t *)(d5 + 0x28) = sid5;          /* iUCInfoSID */
+              { const char *e0 = getenv("AVE2_SURF_E0");   /* w65-H: session+0x3de0 source sweep */
+                if (e0 && e0[0]) *(uint32_t *)(d5 + 0x3e0) = (uint32_t)strtoul(e0, 0, 0); }
               memcpy(d5 + 0x30, stat_in, 0x1a080);      /* Prepare payload */
               uint8_t o5[0x150]; size_t o5z = 0x150; memset(o5, 0xAA, sizeof(o5));
               kern_return_t k5 = p_IOConnectCallStructMethod(c, 5, d5, sizeof(d5), o5, &o5z);
@@ -1000,10 +1002,12 @@ int main(void) {
                       *(uint32_t *)(d5 + 0x04) = 5;          /* eUCCmd = AVE_UCCmd_Start */
                       *(uint32_t *)(d5 + 0x10) = 1;          /* iDataCnt */
                       *(uint32_t *)(d5 + 0x28) = SID;        /* iUCInfoSID = real IOSurface id */
+                      { const char *e0 = getenv("AVE2_SURF_E0");   /* w65-H: :2407 compare-field sweep */
+                        if (e0 && e0[0]) *(uint32_t *)(d5 + 0x3e0) = (uint32_t)strtoul(e0, 0, 0); }
                       memcpy(d5 + 0x30, stat_in, 0x1a080);   /* Prepare payload */
                       uint8_t o5[0x150]; size_t o5z=0x150; memset(o5,0xAA,sizeof(o5));
                       kern_return_t k5 = p_IOConnectCallStructMethod(c,5,d5,sizeof(d5),o5,&o5z);
-                      printf("    sel5 -> 0x%08x %s osz=%zu\n", k5, krname(k5), o5z); }
+                      printf("    sel5(e0=%s) -> 0x%08x %s osz=%zu\n", getenv("AVE2_SURF_E0")?getenv("AVE2_SURF_E0"):"-", k5, krname(k5), o5z); }
                     destroy_close(c);
                 }
                 /* (b) sweep create-in offsets := SID */
