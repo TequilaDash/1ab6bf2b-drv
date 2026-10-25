@@ -159,7 +159,23 @@ static void sel3_async(io_connect_t c, mach_port_t wake) {
     memset(out, 0xAA, sizeof(out));
     size_t o = 0x20;
     kern_return_t kr = p_IOConnectCallAsyncStructMethod(c, 3, wake, aref, 8, din, 0x38, out, &o);
-    printf("    sel3 async -> 0x%08x\n", kr);
+    printf("    sel3 async -> 0x%08x osz=%zu out:", kr, o);
+    for (size_t q = 0; q < o && q < 0x20; q++) printf("%02x", out[q]);
+    printf("\n");
+    /* w65-G: async receipt body — kernel may return its own UCInfo surface SID here */
+    {
+        uint8_t mbuf[0x400];
+        mach_msg_header_t *hdr = (mach_msg_header_t *)mbuf;
+        kern_return_t km = mach_msg(hdr, MACH_RCV_MSG_V, 0, sizeof(mbuf), wake,
+                                    300, 0);
+        printf("    sel3 rcv -> 0x%08x msid=%d\n", km, (int)hdr->msgh_id);
+        if (km == MACH_MSG_SUCCESS) {
+            printf("    sel3 msgbody:");
+            uint8_t *body = (uint8_t *)(hdr + 1);
+            for (int q = 0; q < 0x60; q++) printf("%02x", body[q]);
+            printf("\n");
+        }
+    }
 }
 
 /* ---- v24 generic field-patch infra (env-driven, no assumptions) ---- */
