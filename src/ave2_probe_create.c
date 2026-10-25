@@ -945,14 +945,17 @@ int main(void) {
                 const void **kbpe = (const void **)dlsym(RTLD_DEFAULT, "kIOSurfaceBytesPerElement");
                 if (cdm && csv && cnum && str_cb && val_cb && kw && kh && kbpe) {
                     void *dict = cdm(NULL, 0, str_cb, val_cb);
-                    long long w = 1920, h = 1080, bpe = 1;   /* kCFNumberSInt64Type=4 */
+                    /* w65-D: surface params from env (UCInfo property-match sweep vs Start:2407) */
+                    long long w = getenv("AVE2_SURF_W") ? atoll(getenv("AVE2_SURF_W")) : 1920;
+                    long long h = getenv("AVE2_SURF_H") ? atoll(getenv("AVE2_SURF_H")) : 1080;
+                    long long bpe = getenv("AVE2_SURF_BPE") ? atoll(getenv("AVE2_SURF_BPE")) : 1;   /* kCFNumberSInt64Type=4 */
                     void *nw = cnum(NULL, 4, &w);
                     void *nh = cnum(NULL, 4, &h);
                     void *nb = cnum(NULL, 4, &bpe);
                     if (dict && nw && nh && nb) {
                         csv(dict, *kw, nw); csv(dict, *kh, nh); csv(dict, *kbpe, nb);
                         void *surf = isc(dict);
-                        if (surf != NULL) { SID = isg(surf); printf("    [surf] IOSurface id=%u (0x%x) 1920x1080 bpe=1\n", SID, SID); }
+                        if (surf != NULL) { SID = isg(surf); printf("    [surf] IOSurface id=%u (0x%x) %lldx%lld bpe=%lld\n", SID, SID, w, h, bpe); }
                         else printf("    [surf] IOSurfaceCreate(dict) returned NULL\n");
                     } else printf("    [surf] CF alloc failed\n");
                 } else printf("    [surf] dlsym CF/kIOSurface failed\n");
