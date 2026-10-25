@@ -1064,6 +1064,32 @@ int main(void) {
               memset(out,0xAA,sizeof(out)); size_t o2=0x20;
               p_IOConnectCallAsyncStructMethod(c,3,wake,aref,8,din,0x38,out,&o2); }
             drain_wake(wake, 50);
+            /* w65-AH: sel8 surface intake (UC dispatch idx7=0x1b9e64c) before sel4.
+               outer in struct: +0x30=ptr->triplet{u64,u64,u64}, +0x38=len(>=0x30), +0x58=outptr, +0x60=outlen(<0x1f)
+               inner handler needs UC+0xD8/0x100/0x160 (sel3-built); then 0x1a7f5f8(client, info+0x18, [info+0x28]).
+               info layout guessed: +0x18 = DataInfo{+0x10 surface array, +0x28 count}. Feed 1 real surface. */
+            if (getenv("AVE2_SEL8")) {
+                uint32_t sid8 = h5sid ? h5sid : surf_make_id();
+                static uint8_t trip[0x18]; memset(trip, 0, sizeof(trip));
+                *(uint64_t *)(trip + 0x00) = sid8;               /* surface ID */
+                *(uint64_t *)(trip + 0x08) = 0;                  /* ? */
+                *(uint64_t *)(trip + 0x10) = 0x1000;             /* size guess */
+                static uint8_t info[0x40]; memset(info, 0, sizeof(info));
+                *(uint64_t *)(info + 0x18) = (uint64_t)(trip + 0x10); /* DataInfo ptr (guess: array after +0x10 hdr) */
+                *(uint32_t *)(info + 0x28) = 1;                  /* count */
+                static uint8_t o8[0x30]; memset(o8, 0xAA, sizeof(o8));
+                uint8_t in8[0x80]; memset(in8, 0, sizeof(in8));
+                *(uint64_t *)(in8 + 0x30) = (uint64_t)trip;
+                *(uint32_t *)(in8 + 0x38) = 0x30;
+                *(uint64_t *)(in8 + 0x58) = (uint64_t)o8;
+                *(uint32_t *)(in8 + 0x60) = 0x30;
+                size_t o8z = 0x30;
+                kern_return_t k8 = p_IOConnectCallStructMethod(c, 8, in8, sizeof(in8), o8, &o8z);
+                printf("    [sel8] sid=%u -> 0x%08x %s osz=%zu out0:", sid8, k8, krname(k8), o8z);
+                for (size_t q = 0; q < 16 && q < o8z; q++) printf("%02x", o8[q]);
+                printf("\n");
+                drain_wake(wake, 50);
+            }
             fill_cfg(0, 1920, 1080, 2, 1, 0, 0);
             sel4_p("h5pre", c, 0, 0x1a0a0, patch);
             uint8_t d5[0x1a0b0]; memset(d5, 0, sizeof(d5));
