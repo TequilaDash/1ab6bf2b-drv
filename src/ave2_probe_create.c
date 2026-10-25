@@ -1069,15 +1069,22 @@ int main(void) {
                inner handler needs UC+0xD8/0x100/0x160 (sel3-built); then 0x1a7f5f8(client, info+0x18, [info+0x28]).
                info layout guessed: +0x18 = DataInfo{+0x10 surface array, +0x28 count}. Feed 1 real surface. */
             if (getenv("AVE2_SEL8")) {
+                /* w65-AJ: trip = S_AVE_UCInParam_Open-shaped block (0x1b98084 checks
+                   [+0x10]/[+0x18]/[+0x20] s64>=0, [+0x28..0x37]=version "904.76.7",
+                   [+0xAC] DLB count=0). Zeroed 0xB0 to cover all checks. */
                 uint32_t sid8 = h5sid ? h5sid : surf_make_id();
-                static uint8_t trip[0x18]; memset(trip, 0, sizeof(trip));
-                *(uint64_t *)(trip + 0x00) = sid8;               /* surface ID */
-                *(uint64_t *)(trip + 0x08) = 0;                  /* ? */
-                *(uint64_t *)(trip + 0x10) = 0x1000;             /* size guess */
+                static uint8_t trip[0xB0]; memset(trip, 0, sizeof(trip));
+                *(uint64_t *)(trip + 0x00) = sid8;               /* surface ID (position guess: first field) */
+                *(uint64_t *)(trip + 0x10) = 0;                  /* sTimeOut >= 0 */
+                *(uint64_t *)(trip + 0x18) = 0;                  /* sStartTime >= 0 */
+                *(uint64_t *)(trip + 0x20) = 0;                  /* third s64 >= 0 */
+                memcpy(trip + 0x28, "904.76.7", 9);              /* version memcmp domain */
+                /* [+0xAC] DLB count = 0 (already zero) */
                 static uint8_t info[0x40]; memset(info, 0, sizeof(info));
-                *(uint64_t *)(info + 0x18) = (uint64_t)(trip + 0x10); /* DataInfo ptr (guess: array after +0x10 hdr) */
+                *(uint64_t *)(info + 0x18) = (uint64_t)(trip + 0x38); /* DataInfo ptr guess */
                 *(uint32_t *)(info + 0x28) = 1;                  /* count */
-                static uint8_t o8[0x30]; memset(o8, 0xAA, sizeof(o8));
+                *(uint64_t *)(trip + 0x38) = (uint64_t)trip;     /* placeholder self-ref for array */
+                static uint8_t o8[0x30]; memset(o8, 0, sizeof(o8));
                 uint8_t in8[0x80]; memset(in8, 0, sizeof(in8));
                 *(uint64_t *)(in8 + 0x30) = (uint64_t)trip;
                 *(uint32_t *)(in8 + 0x38) = 0x30;
