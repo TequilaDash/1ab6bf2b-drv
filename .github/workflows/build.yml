@@ -79,6 +79,25 @@ jobs:
           xcrun clang -O2 -g -arch arm64 -isysroot "$SDK"             -miphoneos-version-min=14.0             src/ave2_poll.c -o ave2_poll             -framework CoreFoundation
           file ave2_poll
 
+      - name: Build IOKit hook dylib (arm64, inject into videocodecd)
+        run: |
+          SDK=$(xcrun --sdk iphoneos --show-sdk-path)
+          xcrun clang -O2 -g -arch arm64 -isysroot "$SDK" -dynamiclib \
+            -miphoneos-version-min=15.0 \
+            src/ave2_iokit_hook.c -o ave2_iokit_hook.dylib \
+            -framework IOKit -framework CoreFoundation
+          file ave2_iokit_hook.dylib
+
+      - name: Build VT probe2 (arm64, interpose + AVAssetWriter)
+        run: |
+          SDK=$(xcrun --sdk iphoneos --show-sdk-path)
+          xcrun clang -O2 -g -arch arm64 -isysroot "$SDK" -x objective-c \
+            -miphoneos-version-min=15.0 \
+            src/ave2_vt_probe2.c -o ave2_vt_probe2 \
+            -framework AVFoundation -framework VideoToolbox -framework CoreMedia \
+            -framework CoreVideo -framework Foundation -framework IOKit
+          file ave2_vt_probe2
+
       - name: Sign exploit with entitlements (ldid)
         run: |
           ldid -Sresources/entitlements.plist ave2_exploit
@@ -110,5 +129,7 @@ jobs:
             ave2_probe_create
             ave2_poll
             ave2_vt_probe
+            ave2_vt_probe2
+            ave2_iokit_hook.dylib
             poc_ave2_reach
             ave2_exploit.ipa
