@@ -1055,7 +1055,9 @@ int main(void) {
           else if (hs && hs[0]) h5sid = (uint32_t)strtoul(hs, 0, 0); }
         if (h5sid) printf("[h5sid] %u (0x%x)\n", h5sid, h5sid);
         printf("=== hdr5: create m%d -> sel4 -> sel5 with 16-byte cmd header ===\n", m);
+        int h5only = getenv("AVE2_H5CASE") ? atoi(getenv("AVE2_H5CASE")) : -1; /* w65-P: single-case attribution */
         for (int casei = 0; casei < 8; casei++) {
+            if (h5only >= 0 && casei != h5only) continue;
             if (create_session(m, &c) != 0) { printf("[-] create at case %d\n", casei); break; }
             { uint8_t din[0x40]; memset(din,0,sizeof(din)); memcpy(din,"904.76.7",8);
               iodyn_async_ref_t aref; memset(aref,0,sizeof(aref)); aref[0]=1;
