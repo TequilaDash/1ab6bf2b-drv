@@ -503,8 +503,7 @@ int main(void) {
               if (patch) apply_patch_quiet(d4, patch);
               uint8_t o4[0x20]; size_t o4z = 0x20; memset(o4, 0xAA, sizeof(o4));
               kern_return_t k4 = p_IOConnectCallStructMethod(c, 4, d4, sizeof(d4), o4, &o4z);
-            if (k4 != 0) printf("[CFG-REJ] o=0x%x sel4=0x%08x%s
-", o, k4, getenv("AVE2_SCAN_SINGLE")?" single":"");
+            if (k4 != 0) printf("[CFG-REJ] o=0x%x sel4=0x%08x%s\n", o, k4, getenv("AVE2_SCAN_SINGLE")?" single":"");
               uint8_t d5[0x1a0b0]; memset(d5,0,sizeof(d5)); memcpy(d5,stat_in,0x1a0a0);
               *(uint32_t *)(d5 + 0x28) = 1;
               *(uint32_t *)(d5 + o) = pv;
