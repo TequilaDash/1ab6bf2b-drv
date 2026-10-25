@@ -1068,9 +1068,11 @@ int main(void) {
             uint8_t sub[0x1a0a0]; memset(sub, 0, sizeof(sub));
             memcpy(sub, stat_in, 0x1a0a0);
             if (patch) apply_patch(sub, patch);
-            if (h5sid) { *(uint32_t *)(sub + 0x2c) = 5;         /* w65-N: kernel pIn = input+0x28 → eUCCmd@+0x2c, iUCInfoSID@+0x50 */
-                         *(uint32_t *)(sub + 0x50) = h5sid;
-                         *(uint32_t *)(sub + 0x28) = h5sid; }   /* legacy guesses kept */
+            if (h5sid) { *(uint32_t *)(sub + 0x2c) = 5;         /* Check_Start pIn=in+0x38 → cmd@abs+0x3c (sub@+0x10 shift) */
+                         *(uint32_t *)(sub + 0x3c) = 5;         /* case6 (sub@+0): abs+0x3c */
+                         *(uint32_t *)(sub + 0x50) = h5sid;     /* Check_Start SID? (abs+0x60 @+0x10 layout) */
+                         *(uint32_t *)(sub + 0x28) = h5sid;     /* case6 legacy */
+                         *(uint32_t *)(d5 + 0x28) = h5sid; }    /* CheckParam_Start pIn=in+0 → iUCInfoSID@abs+0x28 */
             if (casei == 7) {
                 /* LRB 回绕配方：flags=1(s=2) B=C=0x10000 D=E=4 => X=Y=0x10000, F3 回绕 0 */
                 *(uint32_t *)(sub + 0x254) = 1;
