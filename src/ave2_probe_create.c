@@ -989,7 +989,8 @@ int main(void) {
             if (SID != 0) {
                 /* (a) sel5 +0x28 := SID only */
                 printf("=== surf(a): sel5+0x28 := %u ===\n", SID);
-                if (create_session(1, &c) == 0) {
+                { int sm = getenv("AVE2_SURF_CM") ? atoi(getenv("AVE2_SURF_CM")) : 1;  /* w65-J: state differential */
+                  if (create_session(sm, &c) == 0) {
                     { uint8_t din[0x40]; memset(din,0,sizeof(din)); memcpy(din,"904.76.7",8);
                       iodyn_async_ref_t aref; memset(aref,0,sizeof(aref)); aref[0]=1;
                       memset(out,0xAA,sizeof(out)); size_t o2=0x20;
@@ -1009,6 +1010,7 @@ int main(void) {
                       kern_return_t k5 = p_IOConnectCallStructMethod(c,5,d5,sizeof(d5),o5,&o5z);
                       printf("    sel5(e0=%s) -> 0x%08x %s osz=%zu\n", getenv("AVE2_SURF_E0")?getenv("AVE2_SURF_E0"):"-", k5, krname(k5), o5z); }
                     destroy_close(c);
+                  }
                 }
                 /* (b) sweep create-in offsets := SID */
                 printf("=== surf(b): create-in sweep := %u ===\n", SID);
