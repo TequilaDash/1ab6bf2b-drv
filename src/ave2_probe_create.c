@@ -1227,6 +1227,48 @@ int main(void) {
         }
 s5done:
         printf("=== sid5 done ===\n");
+    } else if (test != NULL && strcmp(test, "sweepf") == 0) {
+        /* w65-AU: device-side brute force over the sel4 input buffer.
+           For each 4-byte offset: write a big value, call sel4, observe the return code.
+           Any offset where sel4 stops returning KERN_SUCCESS (or the process dies) is a
+           candidate feeding a size calculator. Runs in ONE process = fast, no per-exec cost. */
+        {
+            int lo = getenv("AVE2_SW_LO") ? (int)strtol(getenv("AVE2_SW_LO"), 0, 0) : 0x0;
+            int hi = getenv("AVE2_SW_HI") ? (int)strtol(getenv("AVE2_SW_HI"), 0, 0) : 0x1a0a0;
+            int step = getenv("AVE2_SW_STEP") ? atoi(getenv("AVE2_SW_STEP")) : 4;
+            unsigned val = getenv("AVE2_SW_VAL") ? (unsigned)strtoul(getenv("AVE2_SW_VAL"), 0, 0) : 0x40000000u;
+            int reps = getenv("AVE2_SW_REPS") ? atoi(getenv("AVE2_SW_REPS")) : 1;
+            printf("[sweepf] range 0x%x..0x%x step %d val 0x%x\n", lo, hi, step, val);
+            fflush(stdout);
+            for (int off = lo; off < hi; off += step) {
+                uint8_t save[4];
+                memcpy(save, stat_in + off, 4);
+                *(uint32_t *)(stat_in + off) = val;
+                for (int rp = 0; rp < reps; rp++) {
+                    if (create_session(1, &c) != 0) { printf("[sweepf] create fail @0x%x\n", off); fflush(stdout); goto sweep_done; }
+                    { uint8_t din[0x40]; memset(din,0,sizeof(din)); memcpy(din,"904.76.7",8);
+                      iodyn_async_ref_t aref; memset(aref,0,sizeof(aref)); aref[0]=1;
+                      memset(out,0xAA,sizeof(out)); size_t o2=0x20;
+                      p_IOConnectCallAsyncStructMethod(c,3,wake,aref,8,din,0x38,out,&o2); }
+                    drain_wake(wake, 5);
+                    fill_cfg(0, 1920, 1080, 2, 1, 0, 0);
+                    memcpy(stat_in + off, save, 4);
+                    *(uint32_t *)(stat_in + off) = val;
+                    uint8_t o4[0x40]; size_t o4z = 0x40; memset(o4, 0xAA, sizeof(o4));
+                    kern_return_t k4 = p_IOConnectCallStructMethod(c, 4, stat_in, 0x1a0a0, o4, &o4z);
+                    if (k4 != 0) {
+                        printf("[sweepf] off=0x%04x val=0x%08x -> sel4 0x%08x  (baseline was 0)\n", off, val, k4);
+                        fflush(stdout);
+                    }
+                    destroy_close(c);
+                }
+                memcpy(stat_in + off, save, 4);
+            }
+        }
+sweep_done:
+            printf("[sweepf] done\n");
+            fflush(stdout);
+        }
     } else if (test != NULL && strcmp(test, "sweep610") == 0) {
         /* w65-F: map selectors 6..10 — one of them registers the UCInfo surface (Start:2407 needs it).
            Real IOSurface (SURF_* knobs) + SID variants per selector. */
