@@ -1254,7 +1254,7 @@ s5done:
                     fill_cfg(0, 1920, 1080, 2, 1, 0, 0);
                     memcpy(stat_in + off, save, 4);
                     *(uint32_t *)(stat_in + off) = val;
-                    uint8_t o4[0x40]; size_t o4z = 0x40; memset(o4, 0xAA, sizeof(o4));
+                    static uint8_t o4[0x40]; size_t o4z = 0x40; memset(o4, 0xAA, sizeof(o4));
                     kern_return_t k4 = p_IOConnectCallStructMethod(c, 4, stat_in, 0x1a0a0, o4, &o4z);
                     if (k4 != 0) {
                         printf("[sweepf] off=0x%04x val=0x%08x -> sel4 0x%08x  (baseline was 0)\n", off, val, k4);
@@ -1297,13 +1297,13 @@ sweep_done:
                     uint8_t o4[0x40]; size_t o4z = 0x40; memset(o4, 0xAA, sizeof(o4));
                     kern_return_t k4 = p_IOConnectCallStructMethod(c, 4, stat_in, 0x1a0a0, o4, &o4z);
                     if (k4 == 0) {
-                        uint8_t d5[0x1a0b0]; memset(d5, 0, sizeof(d5));
-                        uint8_t sub[0x1a0a0]; memset(sub, 0, sizeof(sub));
+                        static uint8_t d5[0x1a0b0]; memset(d5, 0, sizeof(d5));
+                        static uint8_t sub[0x1a0a0]; memset(sub, 0, sizeof(sub));
                         memcpy(sub, stat_in, 0x1a0a0);
                         *(uint32_t *)(sub + 0x04) = 5;
                         *(uint32_t *)(sub + 0x28) = SID;
                         memcpy(d5, sub, 0x1a0a0);
-                        uint8_t o5[0x150]; size_t o5z = 0x150; memset(o5, 0xAA, sizeof(o5));
+                        static uint8_t o5[0x150]; size_t o5z = 0x150; memset(o5, 0xAA, sizeof(o5));
                         kern_return_t k5 = p_IOConnectCallStructMethod(c, 5, d5, sizeof(d5), o5, &o5z);
                         if (k5 != 0xe0000001u && k5 != 0xe00002d9u) {
                             printf("[sidsweep] *** HIT off=0x%04x sel4=0 sel5=0x%08x (%s)\n",
