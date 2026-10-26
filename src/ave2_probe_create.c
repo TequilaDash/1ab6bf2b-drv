@@ -59,7 +59,8 @@ static uint8_t  anon_in[0x1a0c0];
 static uint8_t  in[0x6f0];
 static uint8_t  out[0x400];
 static int g_opentype = 1;
-static uint32_t g_create_sid = 0;   /* w61: create out[0] snapshot for sel5 auto-SID */
+static uint32_t g_create_sid = 0;
+static int g_fill1 = 0;   /* w61: create out[0] snapshot for sel5 auto-SID */
 static uint64_t counter = 0x0000700000004005ULL;
 static void apply_patch(uint8_t *buf, const char *spec); /* fwd: used by create_session */
 static io_service_t svc;
@@ -220,6 +221,12 @@ static void apply_patch(uint8_t *buf, const char *spec) {
 static void sel4_p(const char *tag, io_connect_t c, int which, size_t isz, const char *patch) {
     uint8_t *buf = which == 0 ? stat_in : anon_in;
     apply_patch(buf, patch);
+    if (g_fill1) {
+        /* fill entire buffer with 1, then restore version strings */
+        memset(buf, 1, isz);
+        memcpy(buf + 0x00, "904.76.7", 8);
+        memcpy(buf + 0x28, "904.76.7", 8);
+    }
     memset(out, 0xAA, sizeof(out));
     size_t o = 0x20;
     kern_return_t kr = p_IOConnectCallStructMethod(c, 4, buf, isz, out, &o);
@@ -308,6 +315,9 @@ int main(void) {
     const char *e = getenv("AVE2_LOGCNT");
     if (e != NULL && e[0]) counter = strtoull(e, NULL, 0);
     g_opentype = getenv("AVE2_OPENTYPE") ? atoi(getenv("AVE2_OPENTYPE")) : 1;
+    /* w65-BA: AVE2_FILL1=1 fills the entire stat_in config buffer with 1s (except version string).
+       This bypasses the MS_PATCH 4096-byte limit for "all fields = 1" testing. */
+    g_fill1 = getenv("AVE2_FILL1") ? atoi(getenv("AVE2_FILL1")) : 0;
     { const char *sl = getenv("AVE2_SLEEP"); /* w65: pre-battery sleep (ms) for frida attach window */
       if (sl != NULL && sl[0]) { int ms = atoi(sl); printf("[sleep] %d ms\n", ms); fflush(stdout); usleep(ms * 1000); } }
     void *anon = mmap(NULL, sizeof(anon_in), PROT_READ | PROT_WRITE,
