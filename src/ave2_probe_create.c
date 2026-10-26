@@ -1461,3 +1461,4 @@ s5done:
     p_IOObjectRelease(svc);
     return 42;
 }
+}
