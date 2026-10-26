@@ -1138,10 +1138,21 @@ int main(void) {
                 *(uint32_t *)(d5 + 0x0c) = hdr[casei][3];
             }
             uint8_t o5[0x150]; size_t o5z = 0x150; memset(o5, 0xAA, sizeof(o5));
-            kern_return_t k5 = p_IOConnectCallStructMethod(c, 5, d5, sizeof(d5), o5, &o5z);
-            printf("    [h5-%d] sel5 -> 0x%08x %s osz=%zu out0:", casei, k5, krname(k5), o5z);
-            for (size_t q = 0; q < 24 && q < o5z; q++) printf("%02x", o5[q]);
-            printf("\n");
+            kern_return_t k5;
+            /* w65-AP multi-fire: fire1 enqueues ProcessCmd (0x1a7c46c) and fails;
+               WorkThread runs ProcessCmd -> state=2; later fires ride the new state. */
+            { int nfires = getenv("AVE2_H5FIRE") ? atoi(getenv("AVE2_H5FIRE")) : 1;
+              int fdelay = getenv("AVE2_H5FDELAY") ? atoi(getenv("AVE2_H5FDELAY")) : 200;
+              for (int fi = 0; fi < nfires; fi++) {
+                o5z = 0x150; memset(o5, 0xAA, sizeof(o5));
+                k5 = p_IOConnectCallStructMethod(c, 5, d5, sizeof(d5), o5, &o5z);
+                printf("    [h5-%d f%d] sel5 -> 0x%08x %s osz=%zu out0:", casei, fi, k5, krname(k5), o5z);
+                for (size_t q = 0; q < 24 && q < o5z; q++) printf("%02x", o5[q]);
+                printf("
+");
+                if (k5 == 0 || fi + 1 >= nfires) break;
+                usleep(fdelay * 1000);
+              } }
             if (k5 == 0) {
                 uint8_t d6[0x30]; memset(d6,0,sizeof(d6)); memcpy(d6,"904.76.7",8);
                 uint8_t o6[0x20]; size_t o6z=0x20; memset(o6,0xAA,sizeof(o6));
