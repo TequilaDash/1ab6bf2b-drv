@@ -1269,6 +1269,55 @@ sweep_done:
             printf("[sweepf] done\n");
             fflush(stdout);
         }
+    } else if (test != NULL && strcmp(test, "sidsweep") == 0) {
+        /* w65-AW: device-side sweep of the sel4 input: write a REAL IOSurface id at each
+           offset, call sel4 (Configure) then sel5 (Start). If sel5 stops returning -1015,
+           the surface id at that offset makes InitUCInfoPool succeed -> ProcessCmd is
+           posted -> WorkThread sets state=2 -> CopyUCInfoToEx passes. */
+        {
+            uint32_t SID = surf_make_id();
+            if (!SID) { printf("[sidsweep] no surface\n"); return 43; }
+            printf("[sidsweep] real surface SID=%u (0x%x)\n", SID, SID);
+            fflush(stdout);
+            int lo = getenv("AVE2_SID_LO") ? (int)strtol(getenv("AVE2_SID_LO"), 0, 0) : 0x0;
+            int hi = getenv("AVE2_SID_HI") ? (int)strtol(getenv("AVE2_SID_HI"), 0, 0) : 0x1a0a0;
+            int step = getenv("AVE2_SID_STEP") ? atoi(getenv("AVE2_SID_STEP")) : 4;
+            int base = 0;
+            for (int off = lo; off < hi; off += step) {
+                uint32_t keep = *(uint32_t *)(stat_in + off);
+                *(uint32_t *)(stat_in + off) = SID;
+                if (create_session(1, &c) == 0) {
+                    { uint8_t din[0x40]; memset(din,0,sizeof(din)); memcpy(din,"904.76.7",8);
+                      iodyn_async_ref_t aref; memset(aref,0,sizeof(aref)); aref[0]=1;
+                      memset(out,0xAA,sizeof(out)); size_t o2=0x20;
+                      p_IOConnectCallAsyncStructMethod(c,3,wake,aref,8,din,0x38,out,&o2); }
+                    drain_wake(wake, 5);
+                    fill_cfg(0, 1920, 1080, 2, 1, 0, 0);
+                    *(uint32_t *)(stat_in + off) = SID;
+                    uint8_t o4[0x40]; size_t o4z = 0x40; memset(o4, 0xAA, sizeof(o4));
+                    kern_return_t k4 = p_IOConnectCallStructMethod(c, 4, stat_in, 0x1a0a0, o4, &o4z);
+                    if (k4 == 0) {
+                        uint8_t d5[0x1a0b0]; memset(d5, 0, sizeof(d5));
+                        uint8_t sub[0x1a0a0]; memset(sub, 0, sizeof(sub));
+                        memcpy(sub, stat_in, 0x1a0a0);
+                        *(uint32_t *)(sub + 0x04) = 5;
+                        *(uint32_t *)(sub + 0x28) = SID;
+                        memcpy(d5, sub, 0x1a0a0);
+                        uint8_t o5[0x150]; size_t o5z = 0x150; memset(o5, 0xAA, sizeof(o5));
+                        kern_return_t k5 = p_IOConnectCallStructMethod(c, 5, d5, sizeof(d5), o5, &o5z);
+                        if (k5 != 0xe0000001u && k5 != 0xe00002d9u) {
+                            printf("[sidsweep] *** HIT off=0x%04x sel4=0 sel5=0x%08x (%s)\n",
+                                   off, k5, krname(k5));
+                            fflush(stdout);
+                        }
+                    }
+                    destroy_close(c);
+                }
+                *(uint32_t *)(stat_in + off) = keep;
+            }
+        }
+        printf("[sidsweep] done\n");
+        fflush(stdout);
     } else if (test != NULL && strcmp(test, "sweep610") == 0) {
         /* w65-F: map selectors 6..10 — one of them registers the UCInfo surface (Start:2407 needs it).
            Real IOSurface (SURF_* knobs) + SID variants per selector. */
