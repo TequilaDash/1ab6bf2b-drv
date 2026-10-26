@@ -1492,7 +1492,6 @@ sweep_done:
             fill_cfg(0, 1920, 1080, 2, 1, 0, 0); sel4_p("S5/P7e1", c, 0, 0x28, NULL);
             p_IOServiceClose(c);
         }
-    }
 
     munmap(anon, sizeof(anon_in));
     if (wake) mach_port_deallocate(mach_task_self(), wake);
