@@ -1080,10 +1080,16 @@ int main(void) {
                 *(uint64_t *)(trip + 0x20) = 0;                  /* third s64 >= 0 */
                 memcpy(trip + 0x28, "904.76.7", 9);              /* version memcmp domain */
                 /* [+0xAC] DLB count = 0 (already zero) */
+                /* w65-AO: 0x1a7f5f8(client, pTimeOut=x1, w2) requires pTimeOut NON-NULL.
+                   trip+0x18 is passed as pTimeOut — must point to a real struct.
+                   Layout: DataInfo at trip+0x30 {+0x10 surface array, +0x28 count}; timeout at trip+0x18 {s64,s64}. */
+                *(uint64_t *)(trip + 0x18) = (uint64_t)(trip + 0x08);  /* pTimeOut -> {0,0} at trip+0x08 */
+                *(uint64_t *)(trip + 0x20) = (uint64_t)(trip + 0x08);  /* pStartTime same */
+                *(uint32_t *)(trip + 0x28) = 0;                  /* iUCInfoIdx = 0 (was version str — removed, it broke w2 count) */
                 static uint8_t info[0x40]; memset(info, 0, sizeof(info));
-                *(uint64_t *)(info + 0x18) = (uint64_t)(trip + 0x38); /* DataInfo ptr guess */
+                *(uint64_t *)(info + 0x18) = (uint64_t)(trip + 0x30); /* DataInfo ptr guess */
                 *(uint32_t *)(info + 0x28) = 1;                  /* count */
-                *(uint64_t *)(trip + 0x38) = (uint64_t)trip;     /* placeholder self-ref for array */
+                *(uint64_t *)(trip + 0x30) = (uint64_t)trip;     /* placeholder self-ref for array */
                 static uint8_t o8[0x30]; memset(o8, 0, sizeof(o8));
                 uint8_t in8[0x80]; memset(in8, 0, sizeof(in8));
                 *(uint64_t *)(in8 + 0x30) = (uint64_t)trip;
