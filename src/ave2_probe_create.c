@@ -1148,8 +1148,7 @@ int main(void) {
                 k5 = p_IOConnectCallStructMethod(c, 5, d5, sizeof(d5), o5, &o5z);
                 printf("    [h5-%d f%d] sel5 -> 0x%08x %s osz=%zu out0:", casei, fi, k5, krname(k5), o5z);
                 for (size_t q = 0; q < 24 && q < o5z; q++) printf("%02x", o5[q]);
-                printf("
-");
+                printf("\n");
                 if (k5 == 0 || fi + 1 >= nfires) break;
                 usleep(fdelay * 1000);
               } }
