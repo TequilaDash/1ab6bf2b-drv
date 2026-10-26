@@ -1068,6 +1068,9 @@ int main(void) {
                outer in struct: +0x30=ptr->triplet{u64,u64,u64}, +0x38=len(>=0x30), +0x58=outptr, +0x60=outlen(<0x1f)
                inner handler needs UC+0xD8/0x100/0x160 (sel3-built); then 0x1a7f5f8(client, info+0x18, [info+0x28]).
                info layout guessed: +0x18 = DataInfo{+0x10 surface array, +0x28 count}. Feed 1 real surface. */
+            fill_cfg(0, 1920, 1080, 2, 1, 0, 0);
+            sel4_p("h5pre", c, 0, 0x1a0a0, patch);
+            /* w65-AS: sel8 (CopyUCInfoFromEx) must run AFTER sel4 Configure (which posts the work command → state=2) */
             if (getenv("AVE2_SEL8")) {
                 /* w65-AJ: trip = S_AVE_UCInParam_Open-shaped block (0x1b98084 checks
                    [+0x10]/[+0x18]/[+0x20] s64>=0, [+0x28..0x37]=version "904.76.7",
@@ -1103,8 +1106,6 @@ int main(void) {
                 printf("\n");
                 drain_wake(wake, 50);
             }
-            fill_cfg(0, 1920, 1080, 2, 1, 0, 0);
-            sel4_p("h5pre", c, 0, 0x1a0a0, patch);
             uint8_t d5[0x1a0b0]; memset(d5, 0, sizeof(d5));
             uint8_t sub[0x1a0a0]; memset(sub, 0, sizeof(sub));
             memcpy(sub, stat_in, 0x1a0a0);
